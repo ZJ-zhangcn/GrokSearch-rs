@@ -89,41 +89,30 @@ async fn read_sse_json(response: &mut Response, label: &str) -> Result<Value> {
         while let Some((event, rest)) = split_sse_event(&buffer) {
             let event = event.to_vec();
             buffer = rest.to_vec();
-            let event = parse_sse_event(&event, label)?;
-
-            let data = event.data.as_deref().map(str::trim);
-            if event.name.as_deref().is_some_and(is_completion_event_name)
-                && data.map(str::is_empty).unwrap_or(true)
-            {
-                return finish_sse_json(label, last_json, chat_metadata, output_text, chat_content);
-            }
-
-            let Some(data) = data else {
-                continue;
-            };
-            if data.is_empty() {
-                continue;
-            }
-            if data == "[DONE]" {
-                return finish_sse_json(label, last_json, chat_metadata, output_text, chat_content);
-            }
-            let value: Value = serde_json::from_str(data).map_err(|err| {
-                GrokSearchError::Parse(format!("invalid {label} SSE JSON: {err}"))
-            })?;
-            collect_stream_delta(&value, &mut output_text, &mut chat_content);
-            accumulate_chat_metadata(&mut chat_metadata, &value);
-
-            if value.get("type").and_then(Value::as_str) == Some("response.completed") {
-                if let Some(response) = value.get("response") {
-                    return Ok(response.clone());
-                }
-                if !output_text.is_empty() {
-                    return Ok(serde_json::json!({ "output_text": output_text }));
-                }
+            if let Some(value) = process_sse_event(
+                &event,
+                label,
+                &mut last_json,
+                &mut chat_metadata,
+                &mut output_text,
+                &mut chat_content,
+            )? {
                 return Ok(value);
             }
+        }
+    }
 
-            last_json = Some(value);
+    if !buffer.is_empty() {
+        let event = std::mem::take(&mut buffer);
+        if let Some(value) = process_sse_event(
+            &event,
+            label,
+            &mut last_json,
+            &mut chat_metadata,
+            &mut output_text,
+            &mut chat_content,
+        )? {
+            return Ok(value);
         }
     }
 
@@ -184,6 +173,105 @@ fn is_completion_event_name(name: &str) -> bool {
         name,
         "done" | "end" | "complete" | "completed" | "response.completed"
     )
+}
+
+fn process_sse_event(
+    event: &[u8],
+    label: &str,
+    last_json: &mut Option<Value>,
+    chat_metadata: &mut Option<Value>,
+    output_text: &mut String,
+    chat_content: &mut String,
+) -> Result<Option<Value>> {
+    let event = parse_sse_event(event, label)?;
+    let named_completion = event.name.as_deref().is_some_and(is_completion_event_name);
+    let data = event.data.as_deref().map(str::trim);
+
+    if named_completion && data.map(str::is_empty).unwrap_or(true) {
+        return finish_sse_state(label, last_json, chat_metadata, output_text, chat_content)
+            .map(Some);
+    }
+
+    let Some(data) = data else {
+        return Ok(None);
+    };
+    if data.is_empty() {
+        return Ok(None);
+    }
+    if data == "[DONE]" {
+        return finish_sse_state(label, last_json, chat_metadata, output_text, chat_content)
+            .map(Some);
+    }
+
+    let value: Value = serde_json::from_str(data)
+        .map_err(|err| GrokSearchError::Parse(format!("invalid {label} SSE JSON: {err}")))?;
+    collect_stream_delta(&value, output_text, chat_content);
+    accumulate_chat_metadata(chat_metadata, &value);
+
+    if let Some(kind) = response_terminal_error_type(&value) {
+        return Err(GrokSearchError::Provider(format!(
+            "{label} stream ended with {kind}: {}",
+            response_terminal_error_detail(&value)
+        )));
+    }
+
+    if value.get("type").and_then(Value::as_str) == Some("response.completed") {
+        if let Some(response) = value.get("response") {
+            return Ok(Some(response.clone()));
+        }
+        if !output_text.is_empty() {
+            return Ok(Some(
+                serde_json::json!({ "output_text": output_text.clone() }),
+            ));
+        }
+        return Ok(Some(value));
+    }
+
+    if named_completion {
+        *last_json = Some(value);
+        return finish_sse_state(label, last_json, chat_metadata, output_text, chat_content)
+            .map(Some);
+    }
+
+    *last_json = Some(value);
+    Ok(None)
+}
+
+fn finish_sse_state(
+    label: &str,
+    last_json: &mut Option<Value>,
+    chat_metadata: &mut Option<Value>,
+    output_text: &mut String,
+    chat_content: &mut String,
+) -> Result<Value> {
+    finish_sse_json(
+        label,
+        last_json.take(),
+        chat_metadata.take(),
+        std::mem::take(output_text),
+        std::mem::take(chat_content),
+    )
+}
+
+fn response_terminal_error_type(value: &Value) -> Option<&str> {
+    match value.get("type").and_then(Value::as_str) {
+        Some("response.failed" | "response.incomplete") => {
+            value.get("type").and_then(Value::as_str)
+        }
+        _ => None,
+    }
+}
+
+fn response_terminal_error_detail(value: &Value) -> String {
+    value
+        .pointer("/error/message")
+        .or_else(|| value.pointer("/response/error/message"))
+        .or_else(|| value.get("error"))
+        .map(|detail| match detail {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        })
+        .unwrap_or_else(|| value.to_string())
 }
 
 fn accumulate_chat_metadata(acc: &mut Option<Value>, value: &Value) {

@@ -9,6 +9,18 @@ use grok_search_rs::providers::http::{build_client, post_json};
 use serde_json::json;
 
 async fn spawn_sse_server(expected_stream: bool, chunks: Vec<Vec<u8>>) -> String {
+    spawn_sse_server_with_mode(expected_stream, chunks, true).await
+}
+
+async fn spawn_closing_sse_server(expected_stream: bool, chunks: Vec<Vec<u8>>) -> String {
+    spawn_sse_server_with_mode(expected_stream, chunks, false).await
+}
+
+async fn spawn_sse_server_with_mode(
+    expected_stream: bool,
+    chunks: Vec<Vec<u8>>,
+    keep_open: bool,
+) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -41,9 +53,13 @@ async fn spawn_sse_server(expected_stream: bool, chunks: Vec<Vec<u8>>) -> String
                     let _ = sock.write_all(&chunk).await;
                 }
 
-                // 不 shutdown：服务端保持连接，客户端必须在 completed 后主动结束读取。
-                let mut one = [0u8; 1];
-                let _ = sock.read(&mut one).await;
+                if keep_open {
+                    // 不 shutdown：服务端保持连接，客户端必须在 completed 后主动结束读取。
+                    let mut one = [0u8; 1];
+                    let _ = sock.read(&mut one).await;
+                } else {
+                    let _ = sock.shutdown().await;
+                }
             });
         }
     });
@@ -140,6 +156,29 @@ data:\n\n"
     .expect("event: done with empty data should terminate the SSE stream");
 
     assert_eq!(raw["output_text"], "empty data done");
+}
+
+#[tokio::test]
+async fn post_json_returns_when_done_event_has_json_payload() {
+    let chunks = vec![b"event: response.output_text.delta\n\
+data: {\"type\":\"response.output_text.delta\",\"delta\":\"json done\"}\n\n\
+event: done\n\
+data: {}\n\n"
+        .to_vec()];
+    let base = spawn_sse_server(false, chunks).await;
+    let client = build_client(Duration::from_secs(5));
+
+    let raw = post_json(
+        &client,
+        &format!("{}/v1/responses", base),
+        "dummy-key",
+        &json!({"model": "grok-4-fast", "input": "test", "stream": false}),
+        "Grok Responses",
+    )
+    .await
+    .expect("event: done with JSON payload should terminate the SSE stream");
+
+    assert_eq!(raw["output_text"], "json done");
 }
 
 #[tokio::test]
@@ -242,6 +281,51 @@ event: done\n\n"
         .collect();
     assert!(urls.contains(&"https://example.com/meta"));
     assert!(urls.contains(&"https://example.com/source"));
+}
+
+#[tokio::test]
+async fn post_json_parses_trailing_sse_event_at_eof() {
+    let chunks = vec![
+        b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"trailing eof\"}".to_vec(),
+    ];
+    let base = spawn_closing_sse_server(false, chunks).await;
+    let client = build_client(Duration::from_secs(5));
+
+    let raw = post_json(
+        &client,
+        &format!("{}/v1/responses", base),
+        "dummy-key",
+        &json!({"model": "grok-4-fast", "input": "test", "stream": false}),
+        "Grok Responses",
+    )
+    .await
+    .expect("EOF should flush the final SSE event even without blank-line delimiter");
+
+    assert_eq!(raw["output_text"], "trailing eof");
+}
+
+#[tokio::test]
+async fn post_json_errors_on_response_failed_terminal_event() {
+    let chunks = vec![b"event: response.failed\n\
+data: {\"type\":\"response.failed\",\"error\":{\"message\":\"upstream failed\"}}\n\n"
+        .to_vec()];
+    let base = spawn_sse_server(false, chunks).await;
+    let client = build_client(Duration::from_secs(5));
+
+    let err = post_json(
+        &client,
+        &format!("{}/v1/responses", base),
+        "dummy-key",
+        &json!({"model": "grok-4-fast", "input": "test", "stream": false}),
+        "Grok Responses",
+    )
+    .await
+    .expect_err("terminal response.failed event should surface as provider error");
+
+    assert!(
+        err.to_string().contains("response.failed") && err.to_string().contains("upstream failed"),
+        "unexpected error: {err}"
+    );
 }
 
 #[tokio::test]
