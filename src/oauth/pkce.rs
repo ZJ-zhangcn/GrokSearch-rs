@@ -24,6 +24,8 @@ mod tests {
         assert!(verifier.len() >= 43);
         assert_eq!(challenge.len(), 43);
         assert!(!challenge.contains('='));
-        assert!(challenge.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert!(challenge
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
     }
 }

@@ -7,7 +7,10 @@ async fn main() -> anyhow::Result<()> {
     // CLI shim: handle --version, --init before MCP server mode.
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    if args.iter().any(|a| a == "--version" || a == "-V" || a == "-v") {
+    if args
+        .iter()
+        .any(|a| a == "--version" || a == "-V" || a == "-v")
+    {
         println!("grok-search-rs {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
@@ -65,7 +68,10 @@ fn run_status(cfg: &Config) -> anyhow::Result<()> {
     let status = grok_search_rs::oauth::token_store::auth_status(&path);
     println!("grok-search-rs OAuth status");
     println!("  Auth file: {}", status.path.display());
-    println!("  Authenticated: {}", if status.authenticated { "yes" } else { "no" });
+    println!(
+        "  Authenticated: {}",
+        if status.authenticated { "yes" } else { "no" }
+    );
     println!(
         "  Refresh token: {}",
         if status.refresh_token_present {

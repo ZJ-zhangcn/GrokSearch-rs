@@ -171,11 +171,12 @@ impl Config {
             .into_iter()
             .map(|(k, v)| (k.into(), v.into()))
             .collect();
+        let grok_auth_mode = auth_mode_value(&map);
 
         Self {
             grok_api_url: normalize_v1_base(&get(&map, "GROK_SEARCH_URL", "https://api.x.ai")),
             grok_api_key: map.get("GROK_SEARCH_API_KEY").cloned(),
-            grok_auth_mode: auth_mode_value(&map),
+            grok_auth_mode,
             grok_auth_file: map
                 .get("GROK_SEARCH_AUTH_FILE")
                 .cloned()
@@ -215,7 +216,7 @@ impl Config {
                 .get("OPENAI_COMPATIBLE_MODEL")
                 .cloned()
                 .filter(|v| !v.is_empty()),
-            transport: decide_transport(&map),
+            transport: decide_transport(&map, grok_auth_mode),
         }
     }
 
@@ -481,8 +482,8 @@ fn optional_positive_usize(map: &HashMap<String, String>, key: &str) -> Option<u
         .filter(|value| *value > 0)
 }
 
-fn decide_transport(map: &HashMap<String, String>) -> Transport {
-    if auth_mode_value(map) == AuthMode::OAuth {
+fn decide_transport(map: &HashMap<String, String>, auth_mode: AuthMode) -> Transport {
+    if auth_mode == AuthMode::OAuth {
         return Transport::Responses;
     }
     let grok_key_set = map
