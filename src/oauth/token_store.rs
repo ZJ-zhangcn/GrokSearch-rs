@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{fs, io::Write};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -51,10 +52,7 @@ pub fn load_token_store(path: &Path) -> Result<Option<TokenStore>> {
 }
 
 pub fn save_token_store(path: &Path, store: &TokenStore) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_dir_failed: {err}")))?;
-    }
+    ensure_token_parent_dir(path)?;
     let payload = serde_json::to_string_pretty(store)
         .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_serialize_failed: {err}")))?;
     let tmp = path.with_file_name(format!(
@@ -64,14 +62,86 @@ pub fn save_token_store(path: &Path, store: &TokenStore) -> Result<()> {
             .unwrap_or("auth.json"),
         uuid::Uuid::new_v4().simple()
     ));
-    std::fs::write(&tmp, payload)
-        .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_write_failed: {err}")))?;
+    write_token_tmp(&tmp, &payload)?;
     commit_token_file(&tmp, path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    set_owner_only_file_permissions(path)?;
+    Ok(())
+}
+
+fn ensure_token_parent_dir(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        create_owner_only_dir(parent)?;
+        set_owner_only_dir_permissions(parent)?;
     }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn create_owner_only_dir(parent: &Path) -> Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(parent)
+        .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_dir_failed: {err}")))
+}
+
+#[cfg(not(unix))]
+fn create_owner_only_dir(parent: &Path) -> Result<()> {
+    fs::create_dir_all(parent)
+        .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_dir_failed: {err}")))
+}
+
+#[cfg(unix)]
+fn set_owner_only_dir_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_dir_chmod_failed: {err}")))
+}
+
+#[cfg(not(unix))]
+fn set_owner_only_dir_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_token_tmp(tmp: &Path, payload: &str) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(tmp)
+        .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_write_failed: {err}")))?;
+    file.write_all(payload.as_bytes())
+        .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_write_failed: {err}")))?;
+    set_owner_only_file_permissions(tmp)
+}
+
+#[cfg(not(unix))]
+fn write_token_tmp(tmp: &Path, payload: &str) -> Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(tmp)
+        .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_write_failed: {err}")))?;
+    file.write_all(payload.as_bytes())
+        .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_write_failed: {err}")))
+}
+
+#[cfg(unix)]
+fn set_owner_only_file_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_chmod_failed: {err}")))
+}
+
+#[cfg(not(unix))]
+fn set_owner_only_file_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -105,7 +175,10 @@ pub fn delete_token_store(path: &Path) -> Result<bool> {
 
 pub fn auth_status(path: &Path) -> AuthStatus {
     let store = load_token_store(path).ok().flatten();
-    let access = store.as_ref().map(|s| s.access_token.as_str()).unwrap_or("");
+    let access = store
+        .as_ref()
+        .map(|s| s.access_token.as_str())
+        .unwrap_or("");
     AuthStatus {
         path: path.to_path_buf(),
         authenticated: !access.is_empty(),

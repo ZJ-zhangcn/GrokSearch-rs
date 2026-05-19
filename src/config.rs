@@ -447,10 +447,17 @@ fn bool_literal(value: &str) -> bool {
 fn auth_mode_value(map: &HashMap<String, String>) -> AuthMode {
     match map
         .get("GROK_SEARCH_AUTH_MODE")
-        .map(|value| value.trim().to_ascii_lowercase())
-        .as_deref()
+        .map(|value| (value.trim(), value.trim().to_ascii_lowercase()))
     {
-        Some("oauth") => AuthMode::OAuth,
+        Some((_, value)) if value == "api_key" || value.is_empty() => AuthMode::ApiKey,
+        Some((_, value)) if value == "oauth" => AuthMode::OAuth,
+        Some((raw, _)) => {
+            eprintln!(
+                "unknown GROK_SEARCH_AUTH_MODE=\"{}\"; falling back to api_key. Valid values: api_key, oauth.",
+                raw
+            );
+            AuthMode::ApiKey
+        }
         _ => AuthMode::ApiKey,
     }
 }
@@ -524,7 +531,10 @@ mod transport_field_tests {
             Some("https://example.com/v1")
         );
         assert_eq!(cfg.openai_compatible_api_key.as_deref(), Some("sk-fake"));
-        assert_eq!(cfg.openai_compatible_model.as_deref(), Some("grok-4.3-fast"));
+        assert_eq!(
+            cfg.openai_compatible_model.as_deref(),
+            Some("grok-4.3-fast")
+        );
     }
 
     #[test]

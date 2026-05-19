@@ -10,9 +10,8 @@ use url::Url;
 
 use crate::error::{GrokSearchError, Result};
 use crate::oauth::constants::{
-    DEFAULT_XAI_OAUTH_BASE_URL, XAI_OAUTH_CLIENT_ID, XAI_OAUTH_DISCOVERY_URL,
-    XAI_OAUTH_ISSUER, XAI_OAUTH_REDIRECT_HOST, XAI_OAUTH_REDIRECT_PATH,
-    XAI_OAUTH_REDIRECT_PORT, XAI_OAUTH_SCOPE,
+    DEFAULT_XAI_OAUTH_BASE_URL, XAI_OAUTH_CLIENT_ID, XAI_OAUTH_DISCOVERY_URL, XAI_OAUTH_ISSUER,
+    XAI_OAUTH_REDIRECT_HOST, XAI_OAUTH_REDIRECT_PATH, XAI_OAUTH_REDIRECT_PORT, XAI_OAUTH_SCOPE,
 };
 use crate::oauth::pkce::{pkce_pair, random_url_token};
 use crate::oauth::token_store::{save_token_store, TokenStore};
@@ -39,8 +38,8 @@ pub async fn login(auth_path: &Path, open_browser: bool) -> Result<TokenStore> {
         "http://{}:{}{}",
         XAI_OAUTH_REDIRECT_HOST, XAI_OAUTH_REDIRECT_PORT, XAI_OAUTH_REDIRECT_PATH
     );
-    let listener = TcpListener::bind((XAI_OAUTH_REDIRECT_HOST, XAI_OAUTH_REDIRECT_PORT))
-        .map_err(|err| {
+    let listener =
+        TcpListener::bind((XAI_OAUTH_REDIRECT_HOST, XAI_OAUTH_REDIRECT_PORT)).map_err(|err| {
             GrokSearchError::OAuth(format!(
                 "oauth_callback_bind_failed: cannot listen on {redirect_uri}: {err}"
             ))
@@ -81,14 +80,7 @@ pub async fn login(auth_path: &Path, open_browser: bool) -> Result<TokenStore> {
     let code = callback.code.ok_or_else(|| {
         GrokSearchError::OAuth("oauth_code_missing: callback did not include code".to_string())
     })?;
-    let store = exchange_code(
-        &client,
-        &discovery,
-        &code,
-        &verifier,
-        &redirect_uri,
-    )
-    .await?;
+    let store = exchange_code(&client, &discovery, &code, &verifier, &redirect_uri).await?;
     save_token_store(auth_path, &store)?;
     Ok(store)
 }
@@ -131,7 +123,7 @@ fn authorize_url(
         .append_pair("state", state)
         .append_pair("nonce", nonce)
         .append_pair("plan", "generic")
-        .append_pair("referrer", "hermes-agent");
+        .append_pair("referrer", "grok-search-rs");
     Ok(url)
 }
 
@@ -167,12 +159,10 @@ async fn exchange_code(
     }
     let payload = serde_json::from_str::<Value>(&text)
         .map_err(|err| GrokSearchError::OAuth(format!("oauth_token_parse_failed: {err}")))?;
-    let access_token = string_field(&payload, "access_token").ok_or_else(|| {
-        GrokSearchError::OAuth("oauth_token_missing_access_token".to_string())
-    })?;
-    let refresh_token = string_field(&payload, "refresh_token").ok_or_else(|| {
-        GrokSearchError::OAuth("oauth_token_missing_refresh_token".to_string())
-    })?;
+    let access_token = string_field(&payload, "access_token")
+        .ok_or_else(|| GrokSearchError::OAuth("oauth_token_missing_access_token".to_string()))?;
+    let refresh_token = string_field(&payload, "refresh_token")
+        .ok_or_else(|| GrokSearchError::OAuth("oauth_token_missing_refresh_token".to_string()))?;
     Ok(TokenStore {
         access_token,
         refresh_token,
@@ -198,11 +188,9 @@ fn wait_for_callback(listener: &TcpListener, timeout: Duration) -> Result<Callba
                     GrokSearchError::OAuth(format!("oauth_callback_stream_failed: {err}"))
                 })?;
                 let mut buf = [0u8; 4096];
-                let n = stream
-                    .read(&mut buf)
-                    .map_err(|err| {
-                        GrokSearchError::OAuth(format!("oauth_callback_read_failed: {err}"))
-                    })?;
+                let n = stream.read(&mut buf).map_err(|err| {
+                    GrokSearchError::OAuth(format!("oauth_callback_read_failed: {err}"))
+                })?;
                 let request = String::from_utf8_lossy(&buf[..n]);
                 let line = request.lines().next().unwrap_or_default();
                 let callback = parse_callback_line(line)?;
@@ -325,8 +313,7 @@ mod tests {
 
     #[test]
     fn callback_line_extracts_code_and_state() {
-        let callback =
-            parse_callback_line("GET /callback?code=abc&state=xyz HTTP/1.1").unwrap();
+        let callback = parse_callback_line("GET /callback?code=abc&state=xyz HTTP/1.1").unwrap();
         assert_eq!(callback.code.as_deref(), Some("abc"));
         assert_eq!(callback.state.as_deref(), Some("xyz"));
     }

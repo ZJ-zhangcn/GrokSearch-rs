@@ -31,6 +31,13 @@ fn config_reads_oauth_auth_mode_from_env() {
 }
 
 #[test]
+fn unknown_auth_mode_falls_back_to_api_key() {
+    let cfg = Config::from_env_map([("GROK_SEARCH_AUTH_MODE", "something_else")]);
+
+    assert_eq!(cfg.grok_auth_mode, AuthMode::ApiKey);
+}
+
+#[test]
 fn oauth_transport_wins_over_openai_compatible_config() {
     let cfg = Config::from_env_map([
         ("GROK_SEARCH_AUTH_MODE", "oauth"),
@@ -46,7 +53,10 @@ fn oauth_transport_wins_over_openai_compatible_config() {
 fn config_reads_auth_file_override() {
     let cfg = Config::from_env_map([
         ("GROK_SEARCH_AUTH_MODE", "oauth"),
-        ("GROK_SEARCH_AUTH_FILE", "C:\\Users\\chen\\.config\\grok-search-rs\\auth.json"),
+        (
+            "GROK_SEARCH_AUTH_FILE",
+            "C:\\Users\\chen\\.config\\grok-search-rs\\auth.json",
+        ),
     ]);
 
     assert_eq!(cfg.grok_auth_mode, AuthMode::OAuth);
@@ -355,8 +365,8 @@ fn config_path_explicit_override_wins_over_home() {
 
 #[test]
 fn config_path_uses_home_on_unix_layout() {
-    let path = config::config_path_for([("HOME", "/home/alice")])
-        .expect("HOME must produce a path");
+    let path =
+        config::config_path_for([("HOME", "/home/alice")]).expect("HOME must produce a path");
     let expected = std::path::PathBuf::from("/home/alice")
         .join(".config")
         .join("grok-search-rs")
@@ -377,11 +387,9 @@ fn config_path_falls_back_to_userprofile_when_home_missing() {
 
 #[test]
 fn config_path_prefers_home_over_userprofile_when_both_set() {
-    let path = config::config_path_for([
-        ("HOME", "/home/alice"),
-        ("USERPROFILE", "C:\\Users\\chen"),
-    ])
-    .expect("must resolve");
+    let path =
+        config::config_path_for([("HOME", "/home/alice"), ("USERPROFILE", "C:\\Users\\chen")])
+            .expect("must resolve");
     assert!(
         path.starts_with("/home/alice"),
         "HOME should win, got {}",
@@ -391,8 +399,8 @@ fn config_path_prefers_home_over_userprofile_when_both_set() {
 
 #[test]
 fn auth_path_uses_config_sibling_by_default() {
-    let path = config::auth_path_for([("HOME", "/home/alice")])
-        .expect("HOME must produce auth path");
+    let path =
+        config::auth_path_for([("HOME", "/home/alice")]).expect("HOME must produce auth path");
     let expected = std::path::PathBuf::from("/home/alice")
         .join(".config")
         .join("grok-search-rs")
