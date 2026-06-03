@@ -1,6 +1,7 @@
 use grok_search_rs::sources::github::{
     render as gh_render, GithubIssueExtractor, GithubPrExtractor, GithubRaw,
 };
+use grok_search_rs::sources::stackexchange::{render as se_render, SeRaw, StackExchangeExtractor};
 use grok_search_rs::sources::{SourceCaps, SourceExtractor};
 use url::Url;
 
@@ -61,5 +62,73 @@ fn github_matcher_strict_positive_and_negative() {
     ] {
         assert!(!issue.matches(&m(neg)), "issue should reject {neg}");
         assert!(!pr.matches(&m(neg)), "pr should reject {neg}");
+    }
+}
+
+fn se_fixture() -> SeRaw {
+    serde_json::from_str(include_str!("fixtures/sources/stackexchange.json")).unwrap()
+}
+
+#[test]
+fn se_render_accepted_answer_marked_and_first() {
+    let out = se_render(&se_fixture(), &SourceCaps::default());
+    let star = out.find("★ 采纳答案").expect("accepted marker present");
+    let dave = out.find("dave").expect("non-accepted author present");
+    assert!(star < dave, "accepted answer must come before non-accepted");
+}
+
+#[test]
+fn se_render_folds_extra_answers_at_cap() {
+    let caps = SourceCaps {
+        max_answers: 2,
+        max_comments: 30,
+    };
+    let out = se_render(&se_fixture(), &caps);
+    assert!(out.contains("还有 2 条"), "fold: {out}");
+}
+
+#[test]
+fn se_render_accepted_answer_includes_comments() {
+    let out = se_render(&se_fixture(), &SourceCaps::default());
+    assert!(out.contains("Also `list[::-1]`"), "accepted comment: {out}");
+}
+
+#[test]
+fn se_render_other_answers_have_no_comments() {
+    let out = se_render(&se_fixture(), &SourceCaps::default());
+    let after_first_non_accepted = out.split("## 答案").nth(1).unwrap_or("");
+    assert!(
+        !after_first_non_accepted.contains("> **"),
+        "non-accepted answers must render no comments"
+    );
+}
+
+#[test]
+fn se_matcher_full_network_positive() {
+    let se = StackExchangeExtractor;
+    let m = |u: &str| Url::parse(u).unwrap();
+    for pos in [
+        "https://stackoverflow.com/questions/1234/how-do-i",
+        "https://serverfault.com/questions/99",
+        "https://superuser.com/questions/5678",
+        "https://askubuntu.com/questions/111",
+        "https://mathoverflow.net/questions/222",
+        "https://math.stackexchange.com/questions/333",
+        "https://codereview.stackexchange.com/questions/444",
+    ] {
+        assert!(se.matches(&m(pos)), "should match {pos}");
+    }
+}
+
+#[test]
+fn se_matcher_non_question_negative() {
+    let se = StackExchangeExtractor;
+    let m = |u: &str| Url::parse(u).unwrap();
+    for neg in [
+        "https://stackoverflow.com/users/42/alice",
+        "https://stackoverflow.com/tags/rust",
+        "https://stackoverflow.com/questions",
+    ] {
+        assert!(!se.matches(&m(neg)), "should reject {neg}");
     }
 }

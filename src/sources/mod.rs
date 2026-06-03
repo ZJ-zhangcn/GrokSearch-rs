@@ -6,6 +6,7 @@ use url::Url;
 use crate::error::{GrokSearchError, Result};
 
 pub mod github;
+pub mod stackexchange;
 
 /// Sentinel `Err` value returned by [`resolve_content`] when no specialist
 /// extractor matched the URL. The service layer treats this as "go generic
@@ -104,6 +105,7 @@ impl SourceRouter {
             Box::new(github::GithubPrExtractor {
                 token: config.github_token.clone(),
             }),
+            Box::new(stackexchange::StackExchangeExtractor),
         ])
     }
 
