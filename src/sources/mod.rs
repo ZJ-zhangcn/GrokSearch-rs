@@ -92,6 +92,13 @@ impl SourceRouter {
         Self { extractors }
     }
 
+    /// Production constructor: builds the ordered specialist list from runtime
+    /// config. Phase 2 source slices append their extractor here in a serial
+    /// chain (GitHub → StackExchange → arXiv → Wikipedia). Empty for now.
+    pub fn from_config(_config: &crate::config::Config) -> Self {
+        Self::with_extractors(vec![])
+    }
+
     /// First extractor whose `matches(url)` is true, or `None`.
     pub fn find<'a>(&'a self, url: &Url) -> Option<&'a dyn SourceExtractor> {
         self.extractors
@@ -299,10 +306,8 @@ mod tests {
     fn router_returns_first_matching_extractor_in_order() {
         // NeverMatch is skipped; the first AlwaysMatch (GithubIssue) wins over a
         // later extractor, proving sequential first-hit semantics (D-05).
-        let router = SourceRouter::with_extractors(vec![
-            Box::new(NeverMatch),
-            Box::new(AlwaysMatch),
-        ]);
+        let router =
+            SourceRouter::with_extractors(vec![Box::new(NeverMatch), Box::new(AlwaysMatch)]);
         let url = Url::parse("https://example.com/").unwrap();
         let found = router.find(&url).expect("second extractor should match");
         assert_eq!(found.kind(), SourceType::GithubIssue);

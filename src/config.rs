@@ -40,6 +40,9 @@ pub struct Config {
     pub openai_compatible_api_key: Option<String>,
     pub openai_compatible_model: Option<String>,
     pub transport: Transport,
+    pub github_token: Option<String>,
+    pub source_max_answers: usize,
+    pub source_max_comments: usize,
 }
 
 /// Mirror of `Config` for TOML deserialization. All fields optional so users
@@ -68,6 +71,9 @@ struct ConfigFile {
     openai_compatible_api_url: Option<String>,
     openai_compatible_api_key: Option<String>,
     openai_compatible_model: Option<String>,
+    github_token: Option<String>,
+    source_max_answers: Option<usize>,
+    source_max_comments: Option<usize>,
 }
 
 impl ConfigFile {
@@ -125,6 +131,15 @@ impl ConfigFile {
         insert("OPENAI_COMPATIBLE_API_URL", self.openai_compatible_api_url);
         insert("OPENAI_COMPATIBLE_API_KEY", self.openai_compatible_api_key);
         insert("OPENAI_COMPATIBLE_MODEL", self.openai_compatible_model);
+        insert("GITHUB_TOKEN", self.github_token);
+        insert(
+            "GROK_SEARCH_SOURCE_MAX_ANSWERS",
+            self.source_max_answers.map(|n| n.to_string()),
+        );
+        insert(
+            "GROK_SEARCH_SOURCE_MAX_COMMENTS",
+            self.source_max_comments.map(|n| n.to_string()),
+        );
         out
     }
 }
@@ -217,6 +232,9 @@ impl Config {
                 .cloned()
                 .filter(|v| !v.is_empty()),
             transport: decide_transport(&map, grok_auth_mode),
+            github_token: map.get("GITHUB_TOKEN").cloned().filter(|v| !v.is_empty()),
+            source_max_answers: usize_value(&map, "GROK_SEARCH_SOURCE_MAX_ANSWERS", 5),
+            source_max_comments: usize_value(&map, "GROK_SEARCH_SOURCE_MAX_COMMENTS", 30),
         }
     }
 
@@ -385,6 +403,9 @@ pub const CONFIG_TEMPLATE: &str = r#"# grok-search-rs global configuration
 # fetch_max_chars       = 200000      # per-request char cap on web_fetch
 # cache_size            = 256
 # timeout_seconds       = 60
+# source_max_answers    = 5          # max answers rendered per StackExchange question
+# source_max_comments   = 30         # max comments per accepted answer
+# github_token          = "ghp_..."  # GitHub token (optional; anon = 60 req/hr)
 "#;
 
 fn load_file_map(path: &Path) -> Option<HashMap<String, String>> {
@@ -513,6 +534,36 @@ fn redact(value: Option<&str>) -> String {
         None => "unset".to_string(),
         Some(v) if v.len() <= 8 => "***".to_string(),
         Some(v) => format!("{}***{}", &v[..4], &v[v.len() - 4..]),
+    }
+}
+
+#[cfg(test)]
+mod source_config_tests {
+    use super::*;
+
+    #[test]
+    fn source_caps_defaults_hold() {
+        let cfg = Config::from_env_map(Vec::<(String, String)>::new());
+        assert_eq!(cfg.source_max_answers, 5);
+        assert_eq!(cfg.source_max_comments, 30);
+    }
+
+    #[test]
+    fn source_max_answers_reads_env() {
+        let cfg = Config::from_env_map([("GROK_SEARCH_SOURCE_MAX_ANSWERS", "3")]);
+        assert_eq!(cfg.source_max_answers, 3);
+    }
+
+    #[test]
+    fn github_token_present_and_filtered() {
+        let cfg = Config::from_env_map([("GITHUB_TOKEN", "ghp_test")]);
+        assert_eq!(cfg.github_token.as_deref(), Some("ghp_test"));
+
+        let empty = Config::from_env_map([("GITHUB_TOKEN", "")]);
+        assert_eq!(empty.github_token, None);
+
+        let unset = Config::from_env_map(Vec::<(String, String)>::new());
+        assert_eq!(unset.github_token, None);
     }
 }
 

@@ -202,6 +202,7 @@ impl SearchService {
             None
         };
 
+        let source_router = Arc::new(crate::sources::SourceRouter::from_config(&config));
         Ok(Self {
             cache: Arc::new(Mutex::new(SourceCache::new(config.cache_size))),
             default_model: resolve_default_model(&config),
@@ -210,7 +211,7 @@ impl SearchService {
             sources,
             fallback_sources,
             http_client: http.clone(),
-            source_router: Arc::new(crate::sources::SourceRouter::default()),
+            source_router,
         })
     }
 
@@ -478,7 +479,10 @@ impl SearchService {
                     &self.http_client,
                     &parsed,
                     self.source_router.as_ref(),
-                    &crate::sources::SourceCaps::default(),
+                    &crate::sources::SourceCaps {
+                        max_answers: self.config.source_max_answers,
+                        max_comments: self.config.source_max_comments,
+                    },
                 )
                 .await
                 {
@@ -492,11 +496,7 @@ impl SearchService {
                     // Specialist matched but failed/empty: surface the reason (D-01).
                     Err(reason) => {
                         let generic = self.web_fetch_raw(url).await?;
-                        (
-                            generic,
-                            crate::sources::SourceType::Generic,
-                            Some(reason),
-                        )
+                        (generic, crate::sources::SourceType::Generic, Some(reason))
                     }
                 }
             }
