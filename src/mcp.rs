@@ -226,7 +226,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "web_fetch",
-                "description": "Fetch one page through Tavily Extract, with Firecrawl scrape fallback when configured. Returns {url, content, original_length, truncated}.",
+                "description": "Fetch one page through Tavily Extract, with Firecrawl scrape fallback when configured. Returns {url, content, original_length, truncated, source_type, fallback_reason?}.",
                 "inputSchema": {
                     "type": "object",
                     "required": ["url"],
