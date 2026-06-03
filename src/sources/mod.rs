@@ -5,6 +5,7 @@ use url::Url;
 
 use crate::error::{GrokSearchError, Result};
 
+pub mod arxiv;
 pub mod github;
 pub mod stackexchange;
 
@@ -106,6 +107,7 @@ impl SourceRouter {
                 token: config.github_token.clone(),
             }),
             Box::new(stackexchange::StackExchangeExtractor),
+            Box::new(arxiv::ArxivExtractor),
         ])
     }
 

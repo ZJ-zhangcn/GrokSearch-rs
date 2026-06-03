@@ -1,3 +1,4 @@
+use grok_search_rs::sources::arxiv::{render as arxiv_render, ArxivExtractor};
 use grok_search_rs::sources::github::{
     render as gh_render, GithubIssueExtractor, GithubPrExtractor, GithubRaw,
 };
@@ -131,4 +132,57 @@ fn se_matcher_non_question_negative() {
     ] {
         assert!(!se.matches(&m(neg)), "should reject {neg}");
     }
+}
+
+const ARXIV_FIXTURE: &str = include_str!("fixtures/sources/arxiv_atom.xml");
+
+#[test]
+fn arxiv_parse_atom_returns_title() {
+    let raw = ArxivExtractor::parse_atom(ARXIV_FIXTURE).expect("parse");
+    assert_eq!(raw.title, "Attention Is All You Need");
+}
+
+#[test]
+fn arxiv_parse_atom_lists_all_authors() {
+    let raw = ArxivExtractor::parse_atom(ARXIV_FIXTURE).expect("parse");
+    assert!(raw.authors.iter().any(|a| a == "Ashish Vaswani"));
+    assert!(raw.authors.len() >= 2);
+}
+
+#[test]
+fn arxiv_parse_atom_returns_categories() {
+    let raw = ArxivExtractor::parse_atom(ARXIV_FIXTURE).expect("parse");
+    assert!(raw.categories.iter().any(|c| c == "cs.CL"));
+}
+
+#[test]
+fn arxiv_parse_atom_returns_pdf_link() {
+    let raw = ArxivExtractor::parse_atom(ARXIV_FIXTURE).expect("parse");
+    assert!(raw.pdf_link.contains("pdf"), "pdf_link: {}", raw.pdf_link);
+}
+
+#[test]
+fn arxiv_render_shows_title_and_pdf_link() {
+    let raw = ArxivExtractor::parse_atom(ARXIV_FIXTURE).expect("parse");
+    let out = arxiv_render(&raw, &SourceCaps::default());
+    assert!(out.contains("# Attention Is All You Need"));
+    assert!(out.contains("[PDF]"));
+}
+
+#[test]
+fn arxiv_matcher_positive_abs_and_pdf() {
+    let ax = ArxivExtractor;
+    let m = |u: &str| Url::parse(u).unwrap();
+    assert!(ax.matches(&m("https://arxiv.org/abs/1706.03762")));
+    assert!(ax.matches(&m("https://arxiv.org/pdf/1706.03762")));
+    assert!(ax.matches(&m("https://arxiv.org/abs/2106.09685v2")));
+}
+
+#[test]
+fn arxiv_matcher_negative_non_paper_paths() {
+    let ax = ArxivExtractor;
+    let m = |u: &str| Url::parse(u).unwrap();
+    assert!(!ax.matches(&m("https://arxiv.org/")));
+    assert!(!ax.matches(&m("https://arxiv.org/search/")));
+    assert!(!ax.matches(&m("https://export.arxiv.org/api/query?id_list=1706.03762")));
 }
