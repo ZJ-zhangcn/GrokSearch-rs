@@ -429,7 +429,13 @@ impl SearchService {
     pub async fn web_fetch(&self, url: &str, max_chars: Option<usize>) -> Result<WebFetchOutput> {
         let raw = self.web_fetch_raw(url).await?;
         let effective_limit = max_chars.or(self.config.fetch_max_chars);
-        Ok(apply_fetch_limit(url, raw, effective_limit))
+        Ok(apply_fetch_limit(
+            url,
+            raw,
+            effective_limit,
+            crate::sources::SourceType::Generic,
+            None,
+        ))
     }
 
     async fn web_fetch_raw(&self, url: &str) -> Result<String> {
@@ -661,7 +667,13 @@ fn grok_unverifiable_reason(response: &SearchResponse) -> Option<&'static str> {
     None
 }
 
-fn apply_fetch_limit(url: &str, mut content: String, max_chars: Option<usize>) -> WebFetchOutput {
+fn apply_fetch_limit(
+    url: &str,
+    mut content: String,
+    max_chars: Option<usize>,
+    source_type: crate::sources::SourceType,
+    fallback_reason: Option<String>,
+) -> WebFetchOutput {
     let Some(limit) = max_chars else {
         let original_length = content.chars().count();
         return WebFetchOutput {
@@ -669,6 +681,8 @@ fn apply_fetch_limit(url: &str, mut content: String, max_chars: Option<usize>) -
             content,
             original_length,
             truncated: false,
+            source_type,
+            fallback_reason,
         };
     };
 
@@ -691,6 +705,8 @@ fn apply_fetch_limit(url: &str, mut content: String, max_chars: Option<usize>) -
                 content,
                 original_length: limit + extra,
                 truncated: true,
+                source_type,
+                fallback_reason,
             }
         }
         None => WebFetchOutput {
@@ -698,6 +714,8 @@ fn apply_fetch_limit(url: &str, mut content: String, max_chars: Option<usize>) -
             content,
             original_length: count,
             truncated: false,
+            source_type,
+            fallback_reason,
         },
     }
 }

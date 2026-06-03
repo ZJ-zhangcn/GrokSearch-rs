@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::source::Source;
+use crate::sources::SourceType;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct WebSearchInput {
@@ -39,4 +40,46 @@ pub struct WebFetchOutput {
     pub content: String,
     pub original_length: usize,
     pub truncated: bool,
+    /// Always present. `generic` on the fallback path (decision D-02);
+    /// specialist values arrive in Phase 2.
+    pub source_type: SourceType,
+    /// Present only when a specialist was matched and then failed
+    /// (decision D-01); omitted from JSON otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sources::SourceType;
+
+    #[test]
+    fn web_fetch_output_includes_source_type_and_omits_none_fallback_reason() {
+        let output = WebFetchOutput {
+            url: "https://example.com".to_string(),
+            content: "hi".to_string(),
+            original_length: 2,
+            truncated: false,
+            source_type: SourceType::Generic,
+            fallback_reason: None,
+        };
+        let value = serde_json::to_value(&output).unwrap();
+        assert_eq!(value["source_type"], "generic");
+        assert!(value.get("fallback_reason").is_none());
+    }
+
+    #[test]
+    fn web_fetch_output_serializes_fallback_reason_when_present() {
+        let output = WebFetchOutput {
+            url: "https://example.com".to_string(),
+            content: "hi".to_string(),
+            original_length: 2,
+            truncated: false,
+            source_type: SourceType::Generic,
+            fallback_reason: Some("github_issue empty render".to_string()),
+        };
+        let value = serde_json::to_value(&output).unwrap();
+        assert_eq!(value["fallback_reason"], "github_issue empty render");
+    }
 }
