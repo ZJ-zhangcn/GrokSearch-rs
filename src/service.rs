@@ -362,7 +362,14 @@ impl SearchService {
 
         if let Some(reason) = grok_unverifiable_reason(&response) {
             return self
-                .finalize_fallback(deadline, session_id, response, raw_sources, raw_origin, reason)
+                .finalize_fallback(
+                    deadline,
+                    session_id,
+                    response,
+                    raw_sources,
+                    raw_origin,
+                    reason,
+                )
                 .await;
         }
 
@@ -873,7 +880,9 @@ async fn enrich_sources(
             // enforcement applies to the resolve_content call itself.
             let _permit = permit.acquire_owned().await.ok();
             let content = match url::Url::parse(&url_str) {
-                Err(_) => Some(format!("_Failed to retrieve: invalid_url_\n\nSource: {url_str}")),
+                Err(_) => Some(format!(
+                    "_Failed to retrieve: invalid_url_\n\nSource: {url_str}"
+                )),
                 Ok(parsed) => {
                     let future = crate::sources::resolve_content(&client, &parsed, &router, &caps);
                     match tokio::time::timeout_at(deadline, future).await {
@@ -881,12 +890,12 @@ async fn enrich_sources(
                             let truncated: String = md.chars().take(max_chars).collect();
                             Some(truncated)
                         }
-                        Ok(Err(reason)) => {
-                            Some(format!("_Failed to retrieve: {reason}_\n\nSource: {url_str}"))
-                        }
-                        Err(_elapsed) => {
-                            Some(format!("_Failed to retrieve: timeout_\n\nSource: {url_str}"))
-                        }
+                        Ok(Err(reason)) => Some(format!(
+                            "_Failed to retrieve: {reason}_\n\nSource: {url_str}"
+                        )),
+                        Err(_elapsed) => Some(format!(
+                            "_Failed to retrieve: timeout_\n\nSource: {url_str}"
+                        )),
                     }
                 }
             };
@@ -1285,5 +1294,199 @@ mod enrich_tests {
         let svc = service_with(enrich_config(), router);
         let _ = svc.web_search(base_input()).await.expect("web_search");
         assert!(peak.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[tokio::test]
+    async fn web_search_inline_default_fills_content() {
+        let peak = Arc::new(AtomicUsize::new(0));
+        let current = Arc::new(AtomicUsize::new(0));
+        let router = SourceRouter::with_extractors(vec![Box::new(CountingExtractor {
+            peak,
+            current,
+            sleep_ms: 0,
+        })]);
+        let svc = service_with(enrich_config(), router);
+        let out = svc.web_search(base_input()).await.expect("web_search");
+
+        assert!(!out.sources.is_empty());
+        for s in &out.sources {
+            let c = s.content.as_deref().unwrap_or("");
+            assert!(!c.is_empty(), "every source must have non-empty content");
+        }
+    }
+
+    #[tokio::test]
+    async fn enrich_concurrency_is_bounded() {
+        let peak = Arc::new(AtomicUsize::new(0));
+        let current = Arc::new(AtomicUsize::new(0));
+        let router = SourceRouter::with_extractors(vec![Box::new(CountingExtractor {
+            peak: Arc::clone(&peak),
+            current: Arc::clone(&current),
+            sleep_ms: 25, // wide enough window for overlap to register
+        })]);
+        let mut config = enrich_config();
+        config.enrich_concurrency = 2;
+        let svc = service_with(config, router);
+
+        let _ = svc.web_search(base_input()).await.expect("web_search");
+        // 4 sources, concurrency 2 → peak must never exceed 2.
+        assert!(
+            peak.load(Ordering::SeqCst) <= 2,
+            "peak={}",
+            peak.load(Ordering::SeqCst)
+        );
+    }
+
+    #[tokio::test]
+    async fn enrich_truncates_to_max_chars() {
+        let router =
+            SourceRouter::with_extractors(vec![Box::new(OversizeExtractor { len: 20_000 })]);
+        let svc = service_with(enrich_config(), router); // default enrich_max_chars = 15000
+        let out = svc.web_search(base_input()).await.expect("web_search");
+
+        for s in &out.sources {
+            let len = s.content.as_deref().map(|c| c.chars().count()).unwrap_or(0);
+            assert!(len <= 15_000, "content len {len} exceeds cap");
+            assert!(len > 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn enrich_fault_isolation_one_fails_rest_ok() {
+        let peak = Arc::new(AtomicUsize::new(0));
+        let current = Arc::new(AtomicUsize::new(0));
+        let router = SourceRouter::with_extractors(vec![
+            Box::new(MarkerErrExtractor {
+                fail_url_marker: "openai.com".to_string(),
+            }),
+            Box::new(CountingExtractor {
+                peak,
+                current,
+                sleep_ms: 0,
+            }),
+        ]);
+        let svc = service_with(enrich_config(), router);
+        let out = svc
+            .web_search(base_input())
+            .await
+            .expect("web_search returns Ok despite one failure");
+
+        let failed = out
+            .sources
+            .iter()
+            .find(|s| s.url.contains("openai.com"))
+            .expect("grok source present");
+        let passed = out
+            .sources
+            .iter()
+            .find(|s| s.url.contains("example.com"))
+            .expect("supplemental source present");
+
+        assert!(
+            failed
+                .content
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("_Failed to retrieve:"),
+            "failing source must carry a failure note, got: {:?}",
+            failed.content
+        );
+        let pc = passed.content.as_deref().unwrap_or("");
+        assert!(
+            !pc.is_empty() && !pc.starts_with("_Failed to retrieve:"),
+            "passing source must carry real content, got: {pc:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn enrich_timeout_yields_note_not_error() {
+        let router = SourceRouter::with_extractors(vec![Box::new(HangingExtractor)]);
+        let mut config = enrich_config();
+        config.timeout = Duration::from_millis(50); // deadline fires fast
+        let svc = service_with(config, router);
+
+        let out = svc
+            .web_search(base_input())
+            .await
+            .expect("web_search returns Ok on timeout");
+        for s in &out.sources {
+            assert!(
+                s.content.as_deref().unwrap_or("").contains("timeout"),
+                "expected timeout note, got: {:?}",
+                s.content
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn include_content_false_omits_content_field() {
+        let peak = Arc::new(AtomicUsize::new(0));
+        let current = Arc::new(AtomicUsize::new(0));
+        let router = SourceRouter::with_extractors(vec![Box::new(CountingExtractor {
+            peak,
+            current,
+            sleep_ms: 0,
+        })]);
+        let svc = service_with(enrich_config(), router);
+
+        let mut input = base_input();
+        input.include_content = Some(false);
+        let out = svc.web_search(input).await.expect("web_search");
+
+        for s in &out.sources {
+            assert!(s.content.is_none());
+            let value = serde_json::to_value(s).unwrap();
+            assert!(
+                value.get("content").is_none(),
+                "JSON must omit the content key, not emit null"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn extra_sources_zero_suppresses_inline() {
+        let peak = Arc::new(AtomicUsize::new(0));
+        let current = Arc::new(AtomicUsize::new(0));
+        let router = SourceRouter::with_extractors(vec![Box::new(CountingExtractor {
+            peak,
+            current,
+            sleep_ms: 0,
+        })]);
+        let svc = service_with(enrich_config(), router);
+
+        let mut input = base_input();
+        input.extra_sources = Some(0); // effective_extra_sources == 0 → dual gate suppresses enrich
+        let out = svc.web_search(input).await.expect("web_search");
+
+        for s in &out.sources {
+            assert!(
+                s.content.is_none(),
+                "extra_sources=0 must keep the legacy no-content shape"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn get_sources_inherits_enriched_content() {
+        let peak = Arc::new(AtomicUsize::new(0));
+        let current = Arc::new(AtomicUsize::new(0));
+        let router = SourceRouter::with_extractors(vec![Box::new(CountingExtractor {
+            peak,
+            current,
+            sleep_ms: 0,
+        })]);
+        let svc = service_with(enrich_config(), router);
+
+        let out = svc.web_search(base_input()).await.expect("web_search");
+        let again = svc.get_sources(&out.session_id).await.expect("get_sources");
+
+        assert_eq!(out.sources.len(), again.sources.len());
+        for (a, b) in out.sources.iter().zip(again.sources.iter()) {
+            assert_eq!(a.url, b.url);
+            assert_eq!(
+                a.content, b.content,
+                "get_sources must reuse the cached enriched content"
+            );
+        }
     }
 }
