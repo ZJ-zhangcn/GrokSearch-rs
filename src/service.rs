@@ -306,6 +306,10 @@ impl SearchService {
     }
 
     pub async fn web_search(&self, input: WebSearchInput) -> Result<WebSearchOutput> {
+        // D-02: single global deadline shared by Grok + supplemental fetch + enrichment.
+        let deadline = tokio::time::Instant::now() + self.config.timeout;
+        let include_content = input.include_content.unwrap_or(true);
+
         let mut uuid_buf = [0u8; uuid::fmt::Simple::LENGTH];
         let session_id = {
             let encoded = Uuid::new_v4().simple().encode_lower(&mut uuid_buf);
@@ -342,6 +346,7 @@ impl SearchService {
             Err(_) => {
                 return self
                     .finalize_fallback(
+                        deadline,
                         session_id,
                         SearchResponse {
                             content: String::new(),
@@ -357,7 +362,7 @@ impl SearchService {
 
         if let Some(reason) = grok_unverifiable_reason(&response) {
             return self
-                .finalize_fallback(session_id, response, raw_sources, raw_origin, reason)
+                .finalize_fallback(deadline, session_id, response, raw_sources, raw_origin, reason)
                 .await;
         }
 
@@ -365,6 +370,27 @@ impl SearchService {
         enrichment.truncate(effective_extra_sources);
         let enrichment = with_provider(enrichment, enrichment_label(raw_origin));
         let merged = merge_sources(response.sources, enrichment);
+        // SRCH-04 dual gate (zero-regression): skip enrichment when the caller
+        // opted out OR there are no supplemental sources. Gating on
+        // include_content alone would leave content populated at extra_sources=0
+        // and break the legacy "summary + source list" shape.
+        let merged = if include_content && effective_extra_sources > 0 {
+            enrich_sources(
+                merged,
+                deadline,
+                &self.http_client,
+                &self.source_router,
+                crate::sources::SourceCaps {
+                    max_answers: self.config.source_max_answers,
+                    max_comments: self.config.source_max_comments,
+                },
+                self.config.enrich_concurrency,
+                self.config.enrich_max_chars,
+            )
+            .await
+        } else {
+            merged
+        };
 
         let merged_arc = Arc::new(merged);
         let sources_count = merged_arc.len();
@@ -417,6 +443,7 @@ impl SearchService {
 
     async fn finalize_fallback(
         &self,
+        deadline: tokio::time::Instant,
         session_id: String,
         response: SearchResponse,
         raw_sources: Vec<Source>,
@@ -426,6 +453,23 @@ impl SearchService {
         let mut fallback = raw_sources;
         fallback.truncate(self.config.fallback_sources);
         let fallback = with_provider(fallback, fallback_label(raw_origin));
+
+        // D-03: the degraded path enriches unconditionally — one-hand evidence
+        // is most valuable when there is no verifiable summary. No extra_sources
+        // gate here (that gate is the normal web_search path's concern, SRCH-04).
+        let fallback = enrich_sources(
+            fallback,
+            deadline,
+            &self.http_client,
+            &self.source_router,
+            crate::sources::SourceCaps {
+                max_answers: self.config.source_max_answers,
+                max_comments: self.config.source_max_comments,
+            },
+            self.config.enrich_concurrency,
+            self.config.enrich_max_chars,
+        )
+        .await;
 
         let fallback_arc = Arc::new(fallback);
         let sources_count = fallback_arc.len();
@@ -796,6 +840,73 @@ fn apply_fetch_limit(
             fallback_reason,
         },
     }
+}
+
+/// Concurrently back-fill `Source.content` for every source via the Phase 1
+/// `resolve_content` pipeline. Bounded by `concurrency` (Semaphore) and the
+/// shared `deadline` (D-02: per-source `timeout_at`, not an independent budget).
+/// Every source ends with `content = Some(..)` — real markdown (truncated to
+/// `max_chars`) on success, or a deterministic `_Failed to retrieve: ..._` note
+/// on any failure/timeout/invalid-url (D-05: never None, never empty). Source
+/// order is preserved.
+async fn enrich_sources(
+    sources: Vec<Source>,
+    deadline: tokio::time::Instant,
+    client: &reqwest::Client,
+    router: &Arc<crate::sources::SourceRouter>,
+    caps: crate::sources::SourceCaps,
+    concurrency: usize,
+    max_chars: usize,
+) -> Vec<Source> {
+    let sem = Arc::new(tokio::sync::Semaphore::new(concurrency));
+    let mut set: tokio::task::JoinSet<(usize, Option<String>)> = tokio::task::JoinSet::new();
+
+    for (idx, source) in sources.iter().enumerate() {
+        let permit = Arc::clone(&sem);
+        let url_str = source.url.clone();
+        let client = client.clone();
+        let router = Arc::clone(router);
+        let caps = caps.clone();
+
+        set.spawn(async move {
+            // acquire is micro-second scale for concurrency<=5; deadline
+            // enforcement applies to the resolve_content call itself.
+            let _permit = permit.acquire_owned().await.ok();
+            let content = match url::Url::parse(&url_str) {
+                Err(_) => Some(format!("_Failed to retrieve: invalid_url_\n\nSource: {url_str}")),
+                Ok(parsed) => {
+                    let future = crate::sources::resolve_content(&client, &parsed, &router, &caps);
+                    match tokio::time::timeout_at(deadline, future).await {
+                        Ok(Ok((md, _kind))) => {
+                            let truncated: String = md.chars().take(max_chars).collect();
+                            Some(truncated)
+                        }
+                        Ok(Err(reason)) => {
+                            Some(format!("_Failed to retrieve: {reason}_\n\nSource: {url_str}"))
+                        }
+                        Err(_elapsed) => {
+                            Some(format!("_Failed to retrieve: timeout_\n\nSource: {url_str}"))
+                        }
+                    }
+                }
+            };
+            (idx, content)
+        });
+    }
+
+    let mut results: Vec<(usize, Option<String>)> = Vec::with_capacity(sources.len());
+    while let Some(res) = set.join_next().await {
+        if let Ok(pair) = res {
+            results.push(pair);
+        }
+    }
+
+    results.sort_by_key(|(idx, _)| *idx);
+    let mut out = sources;
+    for (idx, content) in results {
+        out[idx].content = content;
+    }
+    out
 }
 
 fn with_provider(
