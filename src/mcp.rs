@@ -183,7 +183,7 @@ fn tools_list() -> Value {
         "tools": [
             {
                 "name": "web_search",
-                "description": "Search the web with Grok Responses, enriched by Tavily and falling back to Firecrawl when needed.",
+                "description": "Use for discovery — when you don't have a specific URL and need to find information, debug an error, research a topic, or track down an issue or news item. Returns an AI-synthesised answer plus a source list; pass include_content=true (default) to inline the full source text via the resolve_content pipeline. If you already know the exact page URL, use web_fetch instead.",
                 "inputSchema": {
                     "type": "object",
                     "required": ["query"],
@@ -221,7 +221,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "get_sources",
-                "description": "Return cached sources for a previous web_search session_id.",
+                "description": "Return cached sources from a previous web_search call by session_id. Use to re-examine sources already retrieved without issuing a new search — it reuses the prior session and runs no new search or fetch.",
                 "inputSchema": {
                     "type": "object",
                     "required": ["session_id"],
@@ -232,7 +232,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "web_fetch",
-                "description": "Fetch one page through Tavily Extract, with Firecrawl scrape fallback when configured. Returns {url, content, original_length, truncated, source_type, fallback_reason?}.",
+                "description": "Use when you already have a specific URL and want to read a single page in depth. GitHub issue/PR, StackOverflow (StackExchange), arXiv, and Wikipedia URLs are automatically parsed into structured, de-noised Markdown ready to feed an LLM; all other pages fall back to generic extraction. Returns {url, content, original_length, truncated, source_type, fallback_reason?}. If you don't have a URL yet and need to discover sources, use web_search instead.",
                 "inputSchema": {
                     "type": "object",
                     "required": ["url"],
@@ -373,5 +373,57 @@ mod tests {
         assert!(sources[0].get("title").is_none());
         assert!(sources[0].get("description").is_none());
         assert!(sources[0].get("published_date").is_none());
+    }
+
+    #[test]
+    fn tools_list_descriptions_guide_routing() {
+        let listed = tools_list();
+        let tools = listed["tools"].as_array().expect("tools array");
+
+        let desc = |name: &str| -> String {
+            tools
+                .iter()
+                .find(|t| t["name"] == name)
+                .unwrap_or_else(|| panic!("tool {name} missing"))
+                ["description"]
+                .as_str()
+                .unwrap_or_else(|| panic!("tool {name} description not a string"))
+                .to_string()
+        };
+
+        // web_search: discovery-type cue, explicit no-URL case; must NOT
+        // recommend itself for single-page reads (that's web_fetch's job).
+        let web_search = desc("web_search");
+        assert!(web_search.contains("discovery"), "web_search: {web_search}");
+        assert!(
+            web_search.contains("don't have a specific URL"),
+            "web_search: {web_search}"
+        );
+        assert!(
+            !web_search.contains("read a single page"),
+            "web_search must not claim the single-page-read role: {web_search}"
+        );
+
+        // web_fetch: targeted single-page read, names all four special
+        // sources, cross-references web_search.
+        let web_fetch = desc("web_fetch");
+        assert!(web_fetch.contains("specific URL"), "web_fetch: {web_fetch}");
+        assert!(
+            web_fetch.contains("read a single page"),
+            "web_fetch: {web_fetch}"
+        );
+        assert!(web_fetch.contains("GitHub issue"), "web_fetch: {web_fetch}");
+        assert!(
+            web_fetch.contains("StackOverflow") || web_fetch.contains("StackExchange"),
+            "web_fetch: {web_fetch}"
+        );
+        assert!(web_fetch.contains("arXiv"), "web_fetch: {web_fetch}");
+        assert!(web_fetch.contains("Wikipedia"), "web_fetch: {web_fetch}");
+        assert!(web_fetch.contains("web_search"), "web_fetch: {web_fetch}");
+
+        // get_sources: reuses a prior web_search session, runs no new search.
+        let get_sources = desc("get_sources");
+        assert!(get_sources.contains("session_id"), "get_sources: {get_sources}");
+        assert!(get_sources.contains("new search"), "get_sources: {get_sources}");
     }
 }
