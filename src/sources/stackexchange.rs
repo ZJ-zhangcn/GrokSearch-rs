@@ -76,6 +76,7 @@ fn is_se_host(host: &str) -> bool {
             | "meta.serverfault.com"
             | "meta.superuser.com"
             | "meta.askubuntu.com"
+            | "meta.mathoverflow.net"
     ) || host.ends_with(".stackexchange.com")
 }
 
@@ -286,7 +287,16 @@ mod tests {
         assert!(is_se_host("meta.stackoverflow.com"));
         assert!(is_se_host("meta.superuser.com"));
         assert!(is_se_host("meta.stackexchange.com"));
+        assert!(is_se_host("meta.mathoverflow.net"));
         assert!(!is_se_host("example.com"));
+    }
+
+    #[test]
+    fn site_from_host_maps_meta_mathoverflow() {
+        assert_eq!(
+            site_from_host("meta.mathoverflow.net"),
+            "meta.mathoverflow.net"
+        );
     }
 
     #[test]

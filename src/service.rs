@@ -922,28 +922,29 @@ async fn enrich_sources(
                             let truncated: String = md.chars().take(max_chars).collect();
                             Some(truncated)
                         }
-                        // Generic URL (no specialist matched): mirror web_fetch
-                        // and use the configured Tavily/Firecrawl generic fetch
-                        // instead of a failure note, so ordinary search results
-                        // still carry inline content (P1).
-                        Ok(Err(reason)) if reason == crate::sources::NO_SPECIALIST_MATCH => {
+                        // Specialist produced no content — either no specialist
+                        // matched (generic URL) OR a matched specialist's API
+                        // failed/rate-limited/rendered empty. Either way, mirror
+                        // web_fetch and try the configured Tavily/Firecrawl generic
+                        // fetch before giving up, so inline content still has page
+                        // evidence when a source provider can fetch the URL (P1 +
+                        // specialist-failure fallback). The original `reason` is
+                        // surfaced only if the generic fetch also fails.
+                        Ok(Err(reason)) => {
                             let generic = generic_source_fetch(&primary, &fallback, &url_str);
                             match tokio::time::timeout_at(deadline, generic).await {
                                 Ok(Ok(md)) => {
                                     let truncated: String = md.chars().take(max_chars).collect();
                                     Some(truncated)
                                 }
-                                Ok(Err(e)) => {
-                                    Some(format!("_Failed to retrieve: {e}_\n\nSource: {url_str}"))
-                                }
+                                Ok(Err(_)) => Some(format!(
+                                    "_Failed to retrieve: {reason}_\n\nSource: {url_str}"
+                                )),
                                 Err(_elapsed) => Some(format!(
                                     "_Failed to retrieve: timeout_\n\nSource: {url_str}"
                                 )),
                             }
                         }
-                        Ok(Err(reason)) => Some(format!(
-                            "_Failed to retrieve: {reason}_\n\nSource: {url_str}"
-                        )),
                         Err(_elapsed) => Some(format!(
                             "_Failed to retrieve: timeout_\n\nSource: {url_str}"
                         )),
@@ -1344,19 +1345,53 @@ mod enrich_tests {
         }
     }
 
-    /// Build a SearchService with fake AI + fake supplemental provider and a
-    /// caller-supplied router/config. Mirrors the doctor_* struct-literal tests.
-    fn service_with(config: Config, router: SourceRouter) -> SearchService {
+    /// Supplemental provider whose `search_sources` returns example.com sources
+    /// but whose generic `fetch` always errors — used to exercise the
+    /// "specialist failed AND generic fetch failed → note" path.
+    struct SearchOkFetchErrProvider;
+    #[async_trait]
+    impl SourceProvider for SearchOkFetchErrProvider {
+        async fn search_sources(
+            &self,
+            _query: &str,
+            max_results: usize,
+            _filters: &SearchFilters,
+        ) -> Result<Vec<Source>> {
+            Ok((0..max_results)
+                .map(|idx| Source::new(format!("https://example.com/source-{idx}"), "tavily"))
+                .collect())
+        }
+        async fn fetch(&self, _url: &str) -> Result<String> {
+            Err(crate::error::GrokSearchError::Provider(
+                "generic fetch unavailable".to_string(),
+            ))
+        }
+        async fn map(&self, _url: &str, _max_results: usize) -> Result<Vec<Source>> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Build a SearchService with fake AI + a caller-supplied supplemental
+    /// provider, router, and config. Mirrors the doctor_* struct-literal tests.
+    fn service_with_sources(
+        config: Config,
+        router: SourceRouter,
+        sources: Option<Arc<dyn SourceProvider>>,
+    ) -> SearchService {
         SearchService {
             default_model: resolve_default_model(&config),
             config,
             ai: Arc::new(FakeAiProvider),
-            sources: Some(Arc::new(FakeSourceProvider)),
+            sources,
             fallback_sources: None,
             cache: Arc::new(Mutex::new(SourceCache::new(64))),
             http_client: crate::providers::http::build_client(std::time::Duration::from_secs(30)),
             source_router: Arc::new(router),
         }
+    }
+
+    fn service_with(config: Config, router: SourceRouter) -> SearchService {
+        service_with_sources(config, router, Some(Arc::new(FakeSourceProvider)))
     }
 
     fn enrich_config() -> Config {
@@ -1480,7 +1515,13 @@ mod enrich_tests {
                 sleep_ms: 0,
             }),
         ]);
-        let svc = service_with(enrich_config(), router);
+        // Provider whose generic fetch ALSO fails, so the failing specialist
+        // source genuinely falls through to the note (not the generic rescue).
+        let svc = service_with_sources(
+            enrich_config(),
+            router,
+            Some(Arc::new(SearchOkFetchErrProvider)),
+        );
         let out = svc
             .web_search(base_input())
             .await
@@ -1510,6 +1551,33 @@ mod enrich_tests {
         assert!(
             !pc.is_empty() && !pc.starts_with("_Failed to retrieve:"),
             "passing source must carry real content, got: {pc:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn enrich_specialist_failure_rescued_by_generic_fetch() {
+        // A matched specialist whose API errors must fall back to the configured
+        // generic fetch (mirroring web_fetch), not store a failure note, when a
+        // source provider can still fetch the URL.
+        let router = SourceRouter::with_extractors(vec![Box::new(MarkerErrExtractor {
+            fail_url_marker: "openai.com".to_string(),
+        })]);
+        let svc = service_with(enrich_config(), router); // FakeSourceProvider.fetch succeeds
+        let out = svc.web_search(base_input()).await.expect("web_search");
+
+        let failed = out
+            .sources
+            .iter()
+            .find(|s| s.url.contains("openai.com"))
+            .expect("grok source present");
+        let content = failed.content.as_deref().unwrap_or("");
+        assert!(
+            content.starts_with("Fetched content from"),
+            "specialist failure must be rescued by generic fetch, got: {content:?}"
+        );
+        assert!(
+            !content.starts_with("_Failed to retrieve:"),
+            "must not store a failure note when generic fetch succeeds: {content:?}"
         );
     }
 
