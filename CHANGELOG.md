@@ -4,6 +4,36 @@ All notable changes to GrokSearch-rs are documented here.
 
 ## Unreleased
 
+## 0.1.17 - 2026-06-12
+
+### Added
+
+- **Grok Responses transport 兜底抽取内联 `[[n]](url)` 引用。** 经代理 /
+  OpenAI 兼容网关转发的 Responses 端点常把真实搜索引用以内联 Markdown 写进
+  回答正文而非结构化 citation 字段,此前这些 source 在 Responses transport
+  下整体丢失。手写扫描器从 chat-completions 适配器的私有函数提升为
+  `adapters::sources::extract_inline_bracket_citations` 共享函数(带
+  provider 标签参数),两条 transport 复用;在结构化路径之后运行,
+  `dedupe_sources` 将重复项折叠进更丰富的结构化条目。
+- **Tavily 多 key 轮询。** `TAVILY_API_KEY` / `tavily_api_key` 接受逗号分隔的
+  key 列表(`tvly-a,tvly-b`),单 key 配置零变化。多 key 时每个请求按共享
+  原子游标 round-robin 选起始 key,把 credit 消耗均摊到所有 key;遇到
+  key 维度错误(HTTP 401/403 无效鉴权、429 速率限制、432 套餐配额耗尽、
+  433 PAYG 限额,均出自 Tavily 官方错误码表)自动换下一个 key 重试,每
+  key 至多一次;超时/5xx 等上游故障不轮转,避免无谓加倍延迟。轮转时仅向
+  stderr 打印 key 序号与状态码,绝不打印 key 本身。
+- `http.rs` 新增 status-aware 变体 `post_json_with_status`(返回
+  `HttpFailure { status, error }`),`post_json` 改为其丢弃 status 的薄
+  包装,其余 provider 行为零变化。
+
+### Docs
+
+- README 补录 0.1.16 响应预算特性(Features 新增 bullet;配置表补
+  `GROK_SEARCH_MAX_INLINE_SOURCES` / `GROK_SEARCH_RESPONSE_MAX_CHARS`;
+  Tools 表补 `web_search` `response_format` 与 `get_sources`
+  `offset`/`limit` 分页)。docs/CONFIGURATION.md 新增 Response budget
+  小节与 TOML 键映射(`max_inline_sources` / `response_max_chars`)。
+
 ## 0.1.16 - 2026-06-11
 
 ### Added
