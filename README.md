@@ -237,8 +237,12 @@ More docs:
 
 ## ⭐ Star History
 
-<a href="https://www.star-history.com/?repos=Episkey-G%2FGrokSearch-rs&type=Date">
-  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Episkey-G/GrokSearch-rs&type=Date" />
+<a href="https://www.star-history.com/?repos=Episkey-G%2FGrokSearch-rs&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Episkey-G/GrokSearch-rs&type=date&theme=dark&legend=top-left&sealed_token=azObTSBD9fgG_4eDHXglTgCUguLssOhllpL_T1u5KRiuxWgqipir_p_mWXlqjtX0NJ-_JtEURaaMBYOk3_VlEqmTQJvfn6jMGoiAEFU8wXeXZT4v_dWsZA" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Episkey-G/GrokSearch-rs&type=date&legend=top-left&sealed_token=azObTSBD9fgG_4eDHXglTgCUguLssOhllpL_T1u5KRiuxWgqipir_p_mWXlqjtX0NJ-_JtEURaaMBYOk3_VlEqmTQJvfn6jMGoiAEFU8wXeXZT4v_dWsZA" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Episkey-G/GrokSearch-rs&type=date&legend=top-left&sealed_token=azObTSBD9fgG_4eDHXglTgCUguLssOhllpL_T1u5KRiuxWgqipir_p_mWXlqjtX0NJ-_JtEURaaMBYOk3_VlEqmTQJvfn6jMGoiAEFU8wXeXZT4v_dWsZA" />
+ </picture>
 </a>
 
 ---
