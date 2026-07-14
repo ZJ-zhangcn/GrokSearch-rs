@@ -262,16 +262,59 @@ impl Config {
             .collect();
         let grok_auth_mode = auth_mode_value(&map);
 
+        // Prefer GROK_SEARCH_* (native rs); fall back to GuDaStudio/Python fork names
+        // GROK_API_* so Hermes can keep one env block (MCP_GROK_* → GROK_API_*).
+        let transport = decide_transport(&map, grok_auth_mode);
+        let mode = map
+            .get("GROK_API_MODE")
+            .map(|s| s.trim().to_ascii_lowercase())
+            .unwrap_or_else(|| "auto".to_string());
+        let force_chat = matches!(mode.as_str(), "chat" | "chat_completions" | "completions");
+        let grok_key = first_nonempty_opt(&map, &["GROK_SEARCH_API_KEY", "GROK_API_KEY"]);
+        let grok_url = first_nonempty(
+            &map,
+            &["GROK_SEARCH_URL", "GROK_API_URL"],
+            "https://api.x.ai",
+        );
+        let grok_model = first_nonempty(
+            &map,
+            &["GROK_SEARCH_MODEL", "GROK_MODEL"],
+            "grok-4-1-fast-reasoning",
+        );
+        let mut openai_compatible_api_url = map
+            .get("OPENAI_COMPATIBLE_API_URL")
+            .cloned()
+            .filter(|v| !v.is_empty());
+        let mut openai_compatible_api_key = map
+            .get("OPENAI_COMPATIBLE_API_KEY")
+            .cloned()
+            .filter(|v| !v.is_empty());
+        let mut openai_compatible_model = map
+            .get("OPENAI_COMPATIBLE_MODEL")
+            .cloned()
+            .filter(|v| !v.is_empty());
+        if force_chat {
+            if openai_compatible_api_url.is_none() {
+                openai_compatible_api_url = Some(normalize_v1_base(&grok_url));
+            }
+            if openai_compatible_api_key.is_none() {
+                openai_compatible_api_key = grok_key.clone();
+            }
+            if openai_compatible_model.is_none() {
+                openai_compatible_model = Some(grok_model.clone());
+            }
+        }
+
         Self {
-            grok_api_url: normalize_v1_base(&get(&map, "GROK_SEARCH_URL", "https://api.x.ai")),
-            grok_api_key: map.get("GROK_SEARCH_API_KEY").cloned(),
+            grok_api_url: normalize_v1_base(&grok_url),
+            grok_api_key: grok_key.clone(),
             grok_auth_mode,
             grok_auth_file: map
                 .get("GROK_SEARCH_AUTH_FILE")
                 .cloned()
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from),
-            grok_model: get(&map, "GROK_SEARCH_MODEL", "grok-4-1-fast-reasoning"),
+            grok_model: grok_model.clone(),
             web_search_enabled: bool_value(&map, "GROK_SEARCH_WEB_SEARCH", true),
             x_search_enabled: bool_value(&map, "GROK_SEARCH_X_SEARCH", false),
             tavily_api_url: normalize_plain_base(&get(
@@ -293,19 +336,10 @@ impl Config {
             fetch_max_chars: optional_positive_usize(&map, "GROK_SEARCH_FETCH_MAX_CHARS"),
             cache_size: usize_value(&map, "GROK_SEARCH_CACHE_SIZE", 256),
             timeout: Duration::from_secs(u64_value(&map, "GROK_SEARCH_TIMEOUT_SECONDS", 60)),
-            openai_compatible_api_url: map
-                .get("OPENAI_COMPATIBLE_API_URL")
-                .cloned()
-                .filter(|v| !v.is_empty()),
-            openai_compatible_api_key: map
-                .get("OPENAI_COMPATIBLE_API_KEY")
-                .cloned()
-                .filter(|v| !v.is_empty()),
-            openai_compatible_model: map
-                .get("OPENAI_COMPATIBLE_MODEL")
-                .cloned()
-                .filter(|v| !v.is_empty()),
-            transport: decide_transport(&map, grok_auth_mode),
+            openai_compatible_api_url,
+            openai_compatible_api_key,
+            openai_compatible_model,
+            transport,
             github_token: map.get("GITHUB_TOKEN").cloned().filter(|v| !v.is_empty()),
             source_max_answers: usize_value(&map, "GROK_SEARCH_SOURCE_MAX_ANSWERS", 5),
             source_max_comments: usize_value(&map, "GROK_SEARCH_SOURCE_MAX_COMMENTS", 30),
@@ -602,10 +636,13 @@ fn decide_transport(map: &HashMap<String, String>, auth_mode: AuthMode) -> Trans
     if auth_mode == AuthMode::OAuth {
         return Transport::Responses;
     }
-    let grok_key_set = map
-        .get("GROK_SEARCH_API_KEY")
-        .map(|v| !v.is_empty())
-        .unwrap_or(false);
+    // GROK_API_MODE (Python fork): auto|responses → Responses when a Grok key is present;
+    // chat|chat_completions forces ChatCompletions if OPENAI_COMPATIBLE_* (or GROK_API_*) set.
+    let mode = map
+        .get("GROK_API_MODE")
+        .map(|s| s.trim().to_ascii_lowercase())
+        .unwrap_or_else(|| "auto".to_string());
+    let grok_key_set = first_nonempty_opt(map, &["GROK_SEARCH_API_KEY", "GROK_API_KEY"]).is_some();
     let compat_url_set = map
         .get("OPENAI_COMPATIBLE_API_URL")
         .map(|v| !v.is_empty())
@@ -615,6 +652,12 @@ fn decide_transport(map: &HashMap<String, String>, auth_mode: AuthMode) -> Trans
         .map(|v| !v.is_empty())
         .unwrap_or(false);
 
+    if matches!(mode.as_str(), "chat" | "chat_completions" | "completions") {
+        if (compat_url_set && compat_key_set) || grok_key_set {
+            return Transport::ChatCompletions;
+        }
+    }
+
     if grok_key_set {
         return Transport::Responses;
     }
@@ -622,6 +665,29 @@ fn decide_transport(map: &HashMap<String, String>, auth_mode: AuthMode) -> Trans
         return Transport::ChatCompletions;
     }
     Transport::Responses
+}
+
+/// First non-empty env among `keys`, else `default`.
+fn first_nonempty(map: &HashMap<String, String>, keys: &[&str], default: &str) -> String {
+    for key in keys {
+        if let Some(v) = map.get(*key) {
+            if !v.is_empty() {
+                return v.clone();
+            }
+        }
+    }
+    default.to_string()
+}
+
+fn first_nonempty_opt(map: &HashMap<String, String>, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(v) = map.get(*key) {
+            if !v.is_empty() {
+                return Some(v.clone());
+            }
+        }
+    }
+    None
 }
 
 fn redact(value: Option<&str>) -> String {
@@ -759,6 +825,35 @@ mod transport_field_tests {
     fn transport_defaults_to_responses_when_only_grok_set() {
         let cfg = Config::from_env_map([("GROK_SEARCH_API_KEY", "xai-fake")]);
         assert_eq!(cfg.transport, Transport::Responses);
+    }
+
+    #[test]
+    fn python_fork_aliases_select_responses() {
+        let cfg = Config::from_env_map([
+            ("GROK_API_KEY", "sk-fake"),
+            ("GROK_API_URL", "https://newapi.example/v1"),
+            ("GROK_MODEL", "grok-4.5"),
+            ("GROK_API_MODE", "auto"),
+        ]);
+        assert_eq!(cfg.transport, Transport::Responses);
+        assert_eq!(cfg.grok_api_key.as_deref(), Some("sk-fake"));
+        assert_eq!(cfg.grok_api_url, "https://newapi.example/v1");
+        assert_eq!(cfg.grok_model, "grok-4.5");
+    }
+
+    #[test]
+    fn grok_search_names_win_over_python_aliases() {
+        let cfg = Config::from_env_map([
+            ("GROK_SEARCH_API_KEY", "xai-primary"),
+            ("GROK_API_KEY", "sk-alias"),
+            ("GROK_SEARCH_URL", "https://api.x.ai"),
+            ("GROK_API_URL", "https://newapi.example/v1"),
+            ("GROK_SEARCH_MODEL", "grok-official"),
+            ("GROK_MODEL", "grok-4.5"),
+        ]);
+        assert_eq!(cfg.grok_api_key.as_deref(), Some("xai-primary"));
+        assert_eq!(cfg.grok_api_url, "https://api.x.ai/v1");
+        assert_eq!(cfg.grok_model, "grok-official");
     }
 
     #[test]
