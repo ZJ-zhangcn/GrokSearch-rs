@@ -17,11 +17,10 @@
 
 只构建 / 发布：
 
-- macOS universal（x64 + arm64）
-- Windows x64
-- Windows arm64
+- macOS universal（一条包同时含 Intel + Apple Silicon）
+- Windows **x64**
 
-**不构建 Linux**（需要时再加回 workflow matrix）。
+**不构建**：Linux、Windows ARM。
 
 ### 1. npm 账号与 scope
 

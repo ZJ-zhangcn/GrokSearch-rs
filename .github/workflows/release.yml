@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # personal-compat: macOS + Windows only (no Linux CI)
+          # personal-compat: macOS universal + Windows x64 only
           - target: universal-apple-darwin
             os: macos-latest
             artifact_name: grok-search-rs
@@ -29,12 +29,6 @@ jobs:
             os: windows-latest
             artifact_name: grok-search-rs.exe
             asset_name: grok-search-rs_Windows_x86_64.zip
-            universal: false
-            cross: false
-          - target: aarch64-pc-windows-msvc
-            os: windows-latest
-            artifact_name: grok-search-rs.exe
-            asset_name: grok-search-rs_Windows_aarch64.zip
             universal: false
             cross: false
     steps:
@@ -188,9 +182,6 @@ jobs:
             binary: grok-search-rs
           - platform: win32-x64
             asset: grok-search-rs_Windows_x86_64.zip
-            binary: grok-search-rs.exe
-          - platform: win32-arm64
-            asset: grok-search-rs_Windows_aarch64.zip
             binary: grok-search-rs.exe
     steps:
       - name: Checkout
