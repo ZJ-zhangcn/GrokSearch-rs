@@ -2,6 +2,7 @@
 
 > **本仓库**：[`ZJ-zhangcn/GrokSearch-rs`](https://github.com/ZJ-zhangcn/GrokSearch-rs)  
 > **分支**：`personal-compat`  
+> **npm**：[`@zj-zhangcn/grok-search-rs`](https://www.npmjs.com/package/@zj-zhangcn/grok-search-rs)（发版后）  
 > **上游**：[`Episkey-G/GrokSearch-rs`](https://github.com/Episkey-G/GrokSearch-rs)  
 > **Python 对照**：[`ZJ-zhangcn/GrokSearch@personal-responses`](https://github.com/ZJ-zhangcn/GrokSearch/tree/personal-responses)
 
@@ -10,10 +11,14 @@
 
 ---
 
-## 推荐：不 clone，一套 MCP 配置（npx）
+## 推荐：不 clone，一套 MCP 配置（npx 本 fork）
 
-Rust 不能像 Python 那样 `uvx --from git+https://...` 即拉即跑。  
-**零本地源码**的等价做法是用上游 **npm 预编译二进制**（`npx -y`，无需 `npm i -g`、无需 clone/cargo）：
+```bash
+npx -y @zj-zhangcn/grok-search-rs@latest
+```
+
+> ⚠️ **不要**用上游 `grok-search-rs@latest`（卡在 0.1.17，无 personal-compat 补丁）。  
+> 发包步骤见 [docs/PUBLISH.md](docs/PUBLISH.md)。发版前可先用本地 `target/release/grok-search-rs`。
 
 ### Hermes
 
@@ -23,21 +28,21 @@ mcp_servers:
     command: npx
     args:
       - -y
-      - grok-search-rs@latest
+      - "@zj-zhangcn/grok-search-rs@latest"
     env:
-      # 继续用你已有的 MCP_GROK_* / MCP_TAVILY_*，在这里映射成 rs 原生名
-      GROK_SEARCH_API_KEY: ${MCP_GROK_API_KEY}
-      GROK_SEARCH_URL: ${MCP_GROK_API_URL}
-      GROK_SEARCH_MODEL: ${MCP_GROK_MODEL}
-      GROK_SEARCH_WEB_SEARCH: "true"
-      GROK_SEARCH_X_SEARCH: "false"
+      GROK_API_KEY: ${MCP_GROK_API_KEY}
+      GROK_API_URL: ${MCP_GROK_API_URL}
+      GROK_MODEL: ${MCP_GROK_MODEL}
+      GROK_API_MODE: ${MCP_GROK_API_MODE}
+      # grok-4.5 自带搜索；勿默认 true，否则易 400/429
+      GROK_SEARCH_WEB_SEARCH: "false"
       TAVILY_API_KEY: ${MCP_TAVILY_API_KEY}
       TAVILY_API_URL: ${MCP_TAVILY_API_URL}
     timeout: 180
     connect_timeout: 120
 ```
 
-有 `GROK_SEARCH_API_KEY` 时走 **Responses**：`POST {GROK_SEARCH_URL}/responses`。
+`GROK_API_*` 与 Python fork 同名；也兼容 `GROK_SEARCH_*`。
 
 ### 通用 MCP JSON
 
@@ -45,104 +50,66 @@ mcp_servers:
 {
   "grok-search": {
     "command": "npx",
-    "args": ["-y", "grok-search-rs@latest"],
+    "args": ["-y", "@zj-zhangcn/grok-search-rs@latest"],
     "env": {
-      "GROK_SEARCH_API_KEY": "sk-...",
-      "GROK_SEARCH_URL": "https://newapi.example/v1",
-      "GROK_SEARCH_MODEL": "grok-4.5",
-      "TAVILY_API_KEY": "th-...",
-      "TAVILY_API_URL": "https://api.tavily.com"
+      "GROK_API_KEY": "sk-...",
+      "GROK_API_URL": "https://api.x.ai/v1",
+      "GROK_MODEL": "grok-4.5",
+      "GROK_SEARCH_WEB_SEARCH": "false",
+      "TAVILY_API_KEY": "tvly-..."
     }
   }
 }
 ```
 
-### 校验
-
-```bash
-hermes mcp test grok-search
-# 或客户端里 call doctor → transport 应为 Responses / grok_responses
-```
-
-| 方式 | 要不要 clone | 说明 |
-|---|---|---|
-| **`npx -y grok-search-rs`** | 否 | **推荐日常**；预编译，省内存 |
-| Python `uvx --from git+...` | 否 | 一套配置但 Python 更重 |
-| 本地 `cargo build --release` | 要 | 开发本 fork / 打补丁时用 |
-
 ---
 
-## 本 fork（personal-compat）额外提供什么
+## personal-compat 相对上游
 
-当你 **从源码跑本仓库** 时，除了上游全部能力，还支持：
-
-| 能力 | 说明 |
+| 项 | 说明 |
 |---|---|
 | **`GROK_API_*` 别名** | 与 Python GuDaStudio 命名一致；`GROK_SEARCH_*` 仍优先 |
 | **`GROK_API_MODE`** | `auto`/`responses` → Responses；`chat` → Chat Completions |
-| **今天/时间注入** | 含「今天/today/最新…」的 query 自动附带本机日期时间，减少二次搜索 |
-| **默认不塞原生 web_search tool** | `grok-4.5` 自带搜索；再传 `tools:[{"type":"web_search"}]` 易 400/429。`GROK_SEARCH_WEB_SEARCH` 默认 **false** |
+| **今天/时间注入** | 「今天/today/最新…」自动附本机日期 |
+| **默认不塞原生 web_search tool** | `grok-4.5` 自带搜索；再传 `tools:[{"type":"web_search"}]` 易 400/429 |
 
 | Python / 本 fork | 上游原生 | 用途 |
 |---|---|---|
-| `GROK_API_KEY` | `GROK_SEARCH_API_KEY` | Bearer |
-| `GROK_API_URL` | `GROK_SEARCH_URL` | base URL |
-| `GROK_MODEL` | `GROK_SEARCH_MODEL` | 模型 |
-| `GROK_API_MODE` | （无） | `auto` / `responses` / `chat` |
+| `GROK_API_KEY` | `GROK_SEARCH_API_KEY` | API Key |
+| `GROK_API_URL` | `GROK_SEARCH_URL` | base（会规范到 `/v1`） |
+| `GROK_MODEL` | `GROK_SEARCH_MODEL` | 模型名 |
+| `GROK_API_MODE` | （无） | `auto`/`chat`/`responses` |
 
-**日常用 npx 时**：在 MCP 配置里把 `MCP_GROK_*` **映射成 `GROK_SEARCH_*`** 即可，不必 clone 本 fork。  
-**要改代码 / 用别名直传 `GROK_API_*`**：再 clone 本分支。
+---
 
-### 本地开发本 fork
+## 开发：本地 release（发版前 / 改代码）
 
 ```bash
-git clone -b personal-compat https://github.com/ZJ-zhangcn/GrokSearch-rs.git
-cd GrokSearch-rs
+git clone https://github.com/ZJ-zhangcn/GrokSearch-rs.git
+cd GrokSearch-rs && git checkout personal-compat
 cargo build --release
-
-# 仅开发机：command 指向 target/release/grok-search-rs
-# env 可直接用 GROK_API_KEY / GROK_API_URL / GROK_MODEL（与 Python 同名）
+# 二进制：target/release/grok-search-rs
 ```
 
----
-
-## 功能概览
-
-- 🔎 `web_search` + 缓存 `get_sources`
-- 📏 响应预算（控制上下文体积）
-- 🧩 `web_fetch` 专用站解析 + Tavily→Firecrawl
-- 🔀 Responses 或 Chat Completions
-- 🩺 `doctor`
-
-| Tool | 用途 |
-|---|---|
-| `web_search` | 检索摘要 |
-| `get_sources` | 按 session 取来源 |
-| `web_fetch` | 抽 URL 正文 |
-| `web_map` | 站点映射 |
-| `doctor` | 诊断 |
-
-完整变量 / OAuth / config.toml：见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
+发 npm 多平台包：打 `v*` tag → Actions **Release**（需 secret `NPM_TOKEN`）。详见 [docs/PUBLISH.md](docs/PUBLISH.md)。
 
 ---
 
-## 与 Python fork 对照
+## 工具（5）
 
-| | Python `@personal-responses` | Rust（npx 或本 fork） |
-|---|---|---|
-| 零 clone | `uvx --from git+...` | **`npx -y grok-search-rs`** |
-| 内存 | 高 | **低** |
-| 一套 env | `GROK_API_*` / `MCP_GROK_*` | 映射到 `GROK_SEARCH_*`（或本 fork 源码跑时用 `GROK_API_*`） |
-| Responses | 支持 | 原生（有 key 即 Responses） |
-| 工具数 | 更多（plan_* 等） | 5 个核心工具 |
+`web_search` · `get_sources` · `web_fetch` · `web_map` · `doctor`
+
+上游精简面，无 Python 的 `plan_*` / `switch_model`。
 
 ---
 
-## Acknowledgements
+## 环境变量摘要
+
+见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。布尔：`1`/`true`/`yes` = 开。
+
+---
+
+## 致谢
 
 - 上游：[Episkey-G/GrokSearch-rs](https://github.com/Episkey-G/GrokSearch-rs)
-- Python：[GuDaStudio/GrokSearch](https://github.com/GuDaStudio/GrokSearch) · [ZJ-zhangcn/GrokSearch@personal-responses](https://github.com/ZJ-zhangcn/GrokSearch/tree/personal-responses)
-
-## License
-
-MIT — 见 [LICENSE](LICENSE)。
+- Python 生态：[GuDaStudio/GrokSearch](https://github.com/GuDaStudio/GrokSearch) / 本用户 `personal-responses` fork

@@ -4,14 +4,15 @@ const { spawn } = require("child_process");
 const path = require("path");
 const os = require("os");
 
-const PACKAGE_NAME = "grok-search-rs";
+const PACKAGE_NAME = "@zj-zhangcn/grok-search-rs";
+const BIN_NAME = "grok-search-rs";
 const PLATFORMS = {
-  "darwin-x64": "@epsiekygrr_zedxx/grok-search-rs-darwin-universal",
-  "darwin-arm64": "@epsiekygrr_zedxx/grok-search-rs-darwin-universal",
-  "linux-x64": "@epsiekygrr_zedxx/grok-search-rs-linux-x64",
-  "linux-arm64": "@epsiekygrr_zedxx/grok-search-rs-linux-arm64",
-  "win32-x64": "@epsiekygrr_zedxx/grok-search-rs-win32-x64",
-  "win32-arm64": "@epsiekygrr_zedxx/grok-search-rs-win32-arm64",
+  "darwin-x64": "@zj-zhangcn/grok-search-rs-darwin-universal",
+  "darwin-arm64": "@zj-zhangcn/grok-search-rs-darwin-universal",
+  "linux-x64": "@zj-zhangcn/grok-search-rs-linux-x64",
+  "linux-arm64": "@zj-zhangcn/grok-search-rs-linux-arm64",
+  "win32-x64": "@zj-zhangcn/grok-search-rs-win32-x64",
+  "win32-arm64": "@zj-zhangcn/grok-search-rs-win32-arm64",
 };
 
 function getBinaryPath() {
@@ -26,7 +27,7 @@ function getBinaryPath() {
 
   try {
     const pkgPath = require.resolve(`${pkgName}/package.json`);
-    const binName = process.platform === "win32" ? `${PACKAGE_NAME}.exe` : PACKAGE_NAME;
+    const binName = process.platform === "win32" ? `${BIN_NAME}.exe` : BIN_NAME;
     return path.join(path.dirname(pkgPath), "bin", binName);
   } catch (_) {
     console.error(`Failed to find platform package: ${pkgName}`);
@@ -55,7 +56,7 @@ function run() {
   }
 
   child.on("error", (err) => {
-    console.error(`Failed to start ${PACKAGE_NAME}: ${err.message}`);
+    console.error(`Failed to start ${BIN_NAME}: ${err.message}`);
     process.exit(1);
   });
 

@@ -1,13 +1,13 @@
 [package]
 name = "grok-search-rs"
-version = "0.1.17"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.78"
 description = "Rust MCP server for Grok web search and Tavily-backed source retrieval"
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/Episkey-G/GrokSearch-rs"
-homepage = "https://github.com/Episkey-G/GrokSearch-rs"
+repository = "https://github.com/ZJ-zhangcn/GrokSearch-rs"
+homepage = "https://github.com/ZJ-zhangcn/GrokSearch-rs"
 keywords = ["mcp", "grok", "tavily", "firecrawl", "search"]
 categories = ["command-line-utilities", "web-programming"]
 

@@ -288,15 +288,15 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   sync-main:
-    name: Sync version bump back to main
+    name: Sync version bump back to personal-compat
     needs: [publish-npm, publish-npm-platforms, create-release]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main
+      - name: Checkout personal-compat
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: personal-compat
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -344,7 +344,7 @@ jobs:
           }
           NODE
 
-      - name: Commit and push to main
+      - name: Commit and push to personal-compat
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
@@ -353,9 +353,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml Cargo.lock npm/grok-search-rs/package.json npm/platforms/*/package.json
           if git diff --cached --quiet; then
-            echo "main already at $VERSION, nothing to commit."
+            echo "personal-compat already at $VERSION, nothing to commit."
             exit 0
           fi
           git commit -m "chore: sync manifests to $VERSION [skip ci]"
-          git pull --rebase origin main
-          git push origin main
+          git pull --rebase origin personal-compat
+          git push origin personal-compat

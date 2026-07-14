@@ -1,29 +1,28 @@
 {
-  "name": "grok-search-rs",
-  "version": "0.1.17",
-  "description": "Rust MCP server for Grok Responses web search, Tavily fetch/map, and Firecrawl fallback",
+  "name": "@zj-zhangcn/grok-search-rs",
+  "version": "0.2.0",
+  "description": "personal-compat GrokSearch-rs: time inject, no double web_search tool, GROK_API_* aliases",
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Episkey-G/GrokSearch-rs.git"
+    "url": "git+https://github.com/ZJ-zhangcn/GrokSearch-rs.git"
   },
-  "author": "Episkey-G",
+  "author": "ZJ-zhangcn",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/Episkey-G/GrokSearch-rs/issues"
+    "url": "https://github.com/ZJ-zhangcn/GrokSearch-rs/issues"
   },
-  "homepage": "https://github.com/Episkey-G/GrokSearch-rs#readme",
+  "homepage": "https://github.com/ZJ-zhangcn/GrokSearch-rs#readme",
   "keywords": [
     "mcp",
     "grok",
     "xai",
     "tavily",
-    "firecrawl",
     "search",
     "rust",
-    "cli"
+    "personal-compat"
   ],
   "bin": {
     "grok-search-rs": "run.js"
@@ -45,10 +44,10 @@
     "arm64"
   ],
   "optionalDependencies": {
-    "@epsiekygrr_zedxx/grok-search-rs-darwin-universal": "0.1.17",
-    "@epsiekygrr_zedxx/grok-search-rs-linux-x64": "0.1.17",
-    "@epsiekygrr_zedxx/grok-search-rs-linux-arm64": "0.1.17",
-    "@epsiekygrr_zedxx/grok-search-rs-win32-x64": "0.1.17",
-    "@epsiekygrr_zedxx/grok-search-rs-win32-arm64": "0.1.17"
+    "@zj-zhangcn/grok-search-rs-darwin-universal": "0.2.0",
+    "@zj-zhangcn/grok-search-rs-linux-x64": "0.2.0",
+    "@zj-zhangcn/grok-search-rs-linux-arm64": "0.2.0",
+    "@zj-zhangcn/grok-search-rs-win32-x64": "0.2.0",
+    "@zj-zhangcn/grok-search-rs-win32-arm64": "0.2.0"
   }
 }

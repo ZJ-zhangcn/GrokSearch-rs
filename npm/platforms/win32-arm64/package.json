@@ -1,12 +1,13 @@
 {
-  "name": "@epsiekygrr_zedxx/grok-search-rs-win32-arm64",
-  "version": "0.1.17",
-  "description": "Windows arm64 binary for grok-search-rs",
+  "name": "@zj-zhangcn/grok-search-rs-win32-arm64",
+  "version": "0.2.0",
+  "description": "Windows arm64 binary for @zj-zhangcn/grok-search-rs (personal-compat)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Episkey-G/GrokSearch-rs.git"
+    "url": "git+https://github.com/ZJ-zhangcn/GrokSearch-rs.git"
   },
+  "homepage": "https://github.com/ZJ-zhangcn/GrokSearch-rs#readme",
   "os": [
     "win32"
   ],
