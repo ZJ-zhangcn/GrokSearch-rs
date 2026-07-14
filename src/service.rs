@@ -761,7 +761,9 @@ impl SearchService {
         input: &WebSearchInput,
         extra_sources: &[Source],
     ) -> SearchRequest {
-        let mut content = input.query.clone();
+        // personal-compat: inject local clock for 今天/today/最新 … so the
+        // upstream model resolves "today" without a second agent round-trip.
+        let mut content = crate::time_context::maybe_inject_time_context(&input.query);
         if let Some(platform) = input.platform.as_deref().filter(|value| !value.is_empty()) {
             content.push_str("\n\nFocus platform: ");
             content.push_str(platform);

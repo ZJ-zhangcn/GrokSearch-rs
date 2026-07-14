@@ -197,7 +197,7 @@ fn tools_list() -> Value {
         "tools": [
             {
                 "name": "web_search",
-                "description": "Use for discovery — when you don't have a specific URL and need to find information, debug an error, research a topic, or track down an issue or news item. Returns an AI-synthesised answer plus a source list. By default the first few sources carry inline content (max_inline_sources, default 5); the rest are metadata-only — drill into any of them with web_fetch(url). The whole response is capped by a character budget; when truncated=true, trimmed sources carry a note telling you how to recover the full text via web_fetch or get_sources. Pass response_format=\"concise\" for answer + source metadata only. If you already know the exact page URL, use web_fetch instead.",
+                "description": "Use for discovery — when you don't have a specific URL and need to find information, debug an error, research a topic, weather/news, or track down an issue. Returns an AI-synthesised answer plus a source list. Time-relative queries (今天/today/最新/current/…) automatically receive local date/time context inside the server — do NOT first look up \"what day is today\" and re-search. Prefer a single web_search for weather/facts; only use web_fetch when you already have a specific URL to read in depth. By default the first few sources carry inline content; drill into any with web_fetch(url). Pass response_format=\"concise\" for answer + metadata only.",
                 "inputSchema": {
                     "type": "object",
                     "required": ["query"],
