@@ -1,7 +1,7 @@
 {
-  "name": "@zj-zhangcn/grok-search-rs",
+  "name": "grok-search-rs-pc",
   "version": "0.2.0",
-  "description": "personal-compat GrokSearch-rs: time inject, no double web_search tool, GROK_API_* aliases",
+  "description": "personal-compat GrokSearch-rs (macOS + Windows x64): time inject, no double web_search tool, GROK_API_* aliases",
   "publishConfig": {
     "access": "public"
   },
@@ -43,7 +43,7 @@
     "arm64"
   ],
   "optionalDependencies": {
-    "@zj-zhangcn/grok-search-rs-darwin-universal": "0.2.0",
-    "@zj-zhangcn/grok-search-rs-win32-x64": "0.2.0"
+    "grok-search-rs-pc-darwin-universal": "0.2.0",
+    "grok-search-rs-pc-win32-x64": "0.2.0"
   }
 }

@@ -4,12 +4,12 @@ const { spawn } = require("child_process");
 const path = require("path");
 const os = require("os");
 
-const PACKAGE_NAME = "@zj-zhangcn/grok-search-rs";
+const PACKAGE_NAME = "grok-search-rs-pc";
 const BIN_NAME = "grok-search-rs";
 const PLATFORMS = {
-  "darwin-x64": "@zj-zhangcn/grok-search-rs-darwin-universal",
-  "darwin-arm64": "@zj-zhangcn/grok-search-rs-darwin-universal",
-  "win32-x64": "@zj-zhangcn/grok-search-rs-win32-x64",
+  "darwin-x64": "grok-search-rs-pc-darwin-universal",
+  "darwin-arm64": "grok-search-rs-pc-darwin-universal",
+  "win32-x64": "grok-search-rs-pc-win32-x64",
 };
 
 function getBinaryPath() {
@@ -18,7 +18,7 @@ function getBinaryPath() {
 
   if (!pkgName) {
     console.error(`Unsupported platform: ${process.platform}-${process.arch}`);
-    console.error(`Supported platforms: ${Object.keys(PLATFORMS).join(", ")}`);
+    console.error(`Supported: ${Object.keys(PLATFORMS).join(", ")} (macOS / Windows x64)`);
     process.exit(1);
   }
 
@@ -28,13 +28,8 @@ function getBinaryPath() {
     return path.join(path.dirname(pkgPath), "bin", binName);
   } catch (_) {
     console.error(`Failed to find platform package: ${pkgName}`);
-    console.error("This may happen if npm failed to install the optional dependency.");
-    console.error("");
-    console.error("Try reinstalling:");
-    console.error(`  npm install ${PACKAGE_NAME}`);
-    console.error("");
-    console.error("Or install the platform package directly:");
-    console.error(`  npm install ${pkgName}`);
+    console.error("Try: npm install grok-search-rs-pc");
+    console.error(`Or:  npm install ${pkgName}`);
     process.exit(1);
   }
 }

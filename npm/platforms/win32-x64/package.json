@@ -1,7 +1,7 @@
 {
-  "name": "@zj-zhangcn/grok-search-rs-win32-x64",
+  "name": "grok-search-rs-pc-win32-x64",
   "version": "0.2.0",
-  "description": "Windows x64 binary for @zj-zhangcn/grok-search-rs (personal-compat)",
+  "description": "Windows x64 binary for grok-search-rs-pc",
   "license": "MIT",
   "repository": {
     "type": "git",

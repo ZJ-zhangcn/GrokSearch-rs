@@ -1,7 +1,7 @@
 {
-  "name": "@zj-zhangcn/grok-search-rs-darwin-universal",
+  "name": "grok-search-rs-pc-darwin-universal",
   "version": "0.2.0",
-  "description": "macOS universal binary for @zj-zhangcn/grok-search-rs (personal-compat)",
+  "description": "macOS universal binary for grok-search-rs-pc",
   "license": "MIT",
   "repository": {
     "type": "git",
