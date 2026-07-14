@@ -80,6 +80,7 @@ hermes mcp test grok-search
 |---|---|
 | **`GROK_API_*` 别名** | 与 Python GuDaStudio 命名一致；`GROK_SEARCH_*` 仍优先 |
 | **`GROK_API_MODE`** | `auto`/`responses` → Responses；`chat` → Chat Completions |
+| **今天/时间注入** | 含「今天/today/最新…」的 query 自动附带本机日期时间，减少二次搜索 |
 
 | Python / 本 fork | 上游原生 | 用途 |
 |---|---|---|
