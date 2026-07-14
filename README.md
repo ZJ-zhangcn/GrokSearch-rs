@@ -23,7 +23,7 @@ mcp_servers:
     command: npx
     args:
       - -y
-      - grok-search-rs@0.1.17   # 可固定版本；或 grok-search-rs 跟 latest
+      - grok-search-rs@latest
     env:
       # 继续用你已有的 MCP_GROK_* / MCP_TAVILY_*，在这里映射成 rs 原生名
       GROK_SEARCH_API_KEY: ${MCP_GROK_API_KEY}
@@ -45,7 +45,7 @@ mcp_servers:
 {
   "grok-search": {
     "command": "npx",
-    "args": ["-y", "grok-search-rs@0.1.17"],
+    "args": ["-y", "grok-search-rs@latest"],
     "env": {
       "GROK_SEARCH_API_KEY": "sk-...",
       "GROK_SEARCH_URL": "https://newapi.example/v1",
