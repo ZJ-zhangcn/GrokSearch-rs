@@ -17,7 +17,7 @@ The config file is optional; missing files are skipped silently. See the [Config
 | `GROK_SEARCH_AUTH_FILE` | `<home>/.config/grok-search-rs/auth.json` | Optional OAuth token file override. |
 | `GROK_SEARCH_URL` | `https://api.x.ai` | Root URL, `/v1` base URL, or endpoint-like URL. The service normalizes it to a `/v1` base. |
 | `GROK_SEARCH_MODEL` | `grok-4-1-fast-reasoning` | Model sent in the Responses payload. |
-| `GROK_SEARCH_WEB_SEARCH` | `true` | Sends Responses `{"type":"web_search"}`. |
+| `GROK_SEARCH_WEB_SEARCH` | `false` (personal-compat) | When `true`, sends Responses `{"type":"web_search"}`. Leave **false** for models like `grok-4.5` that already run built-in web search (double-declaring causes 400/429). |
 | `GROK_SEARCH_X_SEARCH` | `false` | Sends Responses `{"type":"x_search"}` only when enabled. |
 
 Boolean values accept `1`, `true`, or `yes` as enabled. Any other value is treated as disabled.

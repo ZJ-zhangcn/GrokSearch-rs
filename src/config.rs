@@ -315,7 +315,7 @@ impl Config {
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from),
             grok_model: grok_model.clone(),
-            web_search_enabled: bool_value(&map, "GROK_SEARCH_WEB_SEARCH", true),
+            web_search_enabled: bool_value(&map, "GROK_SEARCH_WEB_SEARCH", false),
             x_search_enabled: bool_value(&map, "GROK_SEARCH_X_SEARCH", false),
             tavily_api_url: normalize_plain_base(&get(
                 &map,
@@ -518,7 +518,9 @@ pub const CONFIG_TEMPLATE: &str = r#"# grok-search-rs global configuration
 # openai_compatible_model   = "grok-4.3-fast"
 
 # ── Feature toggles ───────────────────────────────────────────
-# web_search_enabled = true
+# web_search_enabled  defaults to false on personal-compat (grok-4.5 has built-in search)
+# web_search_enabled = false
+# set true only if the model does NOT auto web-search and you need tools:[{type:web_search}]
 # tavily_enabled     = true
 # firecrawl_enabled  = true
 

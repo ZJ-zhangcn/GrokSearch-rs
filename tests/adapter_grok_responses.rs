@@ -46,6 +46,17 @@ fn web_search_enabled_requires_tool_intent() {
 }
 
 #[test]
+fn web_search_disabled_omits_tools_array_entries() {
+    // personal-compat / Python-aligned: no tools:[{type:web_search}] so
+    // models with built-in search (e.g. grok-4.5) are not double-declared.
+    let mut req = sample_request();
+    req.tools = Vec::new();
+    let payload = to_grok_responses_payload(&req, false, false).expect("payload");
+    let tools = payload["tools"].as_array().expect("tools array");
+    assert!(tools.is_empty(), "expected empty tools, got {tools:?}");
+}
+
+#[test]
 fn parses_grok_responses_text_annotations_and_search_call_sources() {
     let raw = serde_json::json!({
         "output": [

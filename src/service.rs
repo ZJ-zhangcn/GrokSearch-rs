@@ -804,7 +804,14 @@ impl SearchService {
                 role: "user".to_string(),
                 content: vec![ContentBlock::text(content)],
             }],
-            tools: vec![SearchTool::web_search()],
+            // personal-compat default: do NOT inject tools:[{type:web_search}].
+            // grok-4.5 Responses already runs built-in web search; double-declaring
+            // it causes upstream 400 "Multiple web search tools" / 429.
+            tools: if self.config.web_search_enabled {
+                vec![SearchTool::web_search()]
+            } else {
+                Vec::new()
+            },
         }
     }
 }

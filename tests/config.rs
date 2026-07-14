@@ -12,7 +12,8 @@ fn config_reads_grok_search_responses_defaults() {
 
     assert_eq!(cfg.grok_api_url, "https://api.x.ai/v1");
     assert_eq!(cfg.grok_model, "grok-4-1-fast-reasoning");
-    assert!(cfg.web_search_enabled);
+    // personal-compat: default off — grok-4.5 already has built-in web search
+    assert!(!cfg.web_search_enabled);
     assert!(!cfg.x_search_enabled);
     assert_eq!(cfg.tavily_api_url, "https://api.tavily.com");
     assert!(cfg.tavily_enabled);
@@ -337,7 +338,7 @@ fn fresh_template_does_not_override_defaults_or_supply_credentials() {
     assert_eq!(cfg.fallback_sources, 5);
     assert_eq!(cfg.cache_size, 256);
     assert_eq!(cfg.timeout.as_secs(), 60);
-    assert!(cfg.web_search_enabled);
+    assert!(!cfg.web_search_enabled);
     assert!(!cfg.x_search_enabled);
     assert!(cfg.tavily_enabled);
     assert!(cfg.firecrawl_enabled);
