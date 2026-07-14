@@ -31,9 +31,18 @@ npm access list packages @zj-zhangcn 2>/dev/null || true
 
 ### 2. Automation Token
 
-1. npm → Access Tokens → **Granular** 或 classic **Automation**
-2. 权限：Publish（packages）
-3. 复制 token（只显示一次）
+1. npm → Access Tokens → **Generate New Token**
+2. 选 **Granular Access Token**（推荐）或 classic **Automation**（专门给 CI）
+3. Granular 必勾：
+   - **Packages and scopes**：Read and write（至少能 publish `@zj-zhangcn/*`）
+   - **Bypass two-factor authentication (2FA)** / “Bypass 2FA for automation” = **开**  
+     （不开会 403：`Two-factor authentication or granular access token with bypass 2fa enabled is required`）
+4. classic 则选类型 **Automation**（非 Publish/Read-only）
+5. 复制 token（只显示一次）
+
+> v0.2.0 构建与 GitHub Release 已成功；若只因 token 失败，修好 secret 后执行：  
+> `gh run rerun 29306039113 -R ZJ-zhangcn/GrokSearch-rs --failed`  
+> 无需重打 tag。
 
 ### 3. 写入 GitHub Secrets
 
@@ -112,7 +121,8 @@ mcp_servers:
 
 | 现象 | 处理 |
 |---|---|
-| `ENEEDAUTH` / 403 | `NPM_TOKEN` 未设或过期；token 类型需能 publish |
+| `ENEEDAUTH` / 403 | `NPM_TOKEN` 未设或过期；需 **Automation** 或 granular + **Bypass 2FA** |
+| `403 … Two-factor authentication or granular … bypass 2fa` | 账号开了 2FA，token 未勾 Bypass 2FA；重建 token 后 `gh run rerun <id> --failed` |
 | `402` / scope 不存在 | npm 上无 `@zj-zhangcn` 组织/用户 |
 | platform publish 成功、主包失败 | 看 optionalDependencies 版本是否与 tag 一致 |
 | Release 没跑 | tag 必须是 `v*`（如 `v0.2.0`） |
