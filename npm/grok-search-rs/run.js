@@ -9,8 +9,6 @@ const BIN_NAME = "grok-search-rs";
 const PLATFORMS = {
   "darwin-x64": "@zj-zhangcn/grok-search-rs-darwin-universal",
   "darwin-arm64": "@zj-zhangcn/grok-search-rs-darwin-universal",
-  "linux-x64": "@zj-zhangcn/grok-search-rs-linux-x64",
-  "linux-arm64": "@zj-zhangcn/grok-search-rs-linux-arm64",
   "win32-x64": "@zj-zhangcn/grok-search-rs-win32-x64",
   "win32-arm64": "@zj-zhangcn/grok-search-rs-win32-arm64",
 };

@@ -13,7 +13,15 @@
 
 与上游 `grok-search-rs@0.1.17` **同名空间不同**，不会互相覆盖。
 
-## 一次性准备
+## 目标平台（本 fork CI）
+
+只构建 / 发布：
+
+- macOS universal（x64 + arm64）
+- Windows x64
+- Windows arm64
+
+**不构建 Linux**（需要时再加回 workflow matrix）。
 
 ### 1. npm 账号与 scope
 
