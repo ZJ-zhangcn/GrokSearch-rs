@@ -1,23 +1,40 @@
 # GrokSearch-rs（personal-compat）
 
-轻量 Rust MCP：Grok/兼容网关网页搜索 + Tavily/Firecrawl。
+轻量 **Rust MCP** 服务：Grok / OpenAI 兼容网关网页搜索，附 Tavily fetch/map 与 Firecrawl 回退。  
+Fork 自 [`Episkey-G/GrokSearch-rs`](https://github.com/Episkey-G/GrokSearch-rs)，**默认分支 = `personal-compat`**。
 
 | 项 | 值 |
 |---|---|
 | 仓库 | https://github.com/ZJ-zhangcn/GrokSearch-rs |
 | 分支 | `personal-compat` |
-| npm | **`grok-search-rs-pc`**（无需组织 scope） |
+| 上游 npm | `grok-search-rs`（**不要用**，缺本分支补丁） |
+| 本 fork npm | **`grok-search-rs-pc`**（unscoped，无需组织） |
 | 上游 | https://github.com/Episkey-G/GrokSearch-rs |
 
-## 推荐运行
+## 与上游的主要区别
+
+| 点 | 上游 | 本分支 |
+|---|---|---|
+| npm 包名 | `grok-search-rs` / 组织包 | **`grok-search-rs-pc`**，一键 `npx` |
+| 环境变量 | 主要 `GROK_SEARCH_*` | 额外接受 **`GROK_API_*` / `GROK_MODEL` / `GROK_API_MODE`** 等 Python 同名别名 |
+| 时间 | 无 | 查询含「今天/today」等时 **注入本地时间**，减少二次搜时间 |
+| `GROK_SEARCH_WEB_SEARCH` | 默认更偏 `true` | **默认 `false`**，避免 grok-4.5 双工具 400/429 |
+| 发布矩阵 | 多平台 | **macOS universal + Windows x64**（去掉 Win ARM 等） |
+| 文档 | 英文长文 | 本中文操作说明 + `docs/PUBLISH.md` |
+
+MCP 工具集与上游一致：`web_search` · `get_sources` · `web_fetch` · `web_map` · `doctor`。
+
+## 部署 / 接入方式
+
+### 方式 A：npx（推荐，不 clone）
 
 ```bash
 npx -y grok-search-rs-pc@latest
 ```
 
-不要用上游 `grok-search-rs@latest`（缺本分支补丁）。
+在 MCP 客户端里配置 command/args 即可，二进制由 npm 按平台拉取。
 
-## Hermes 示例
+#### Hermes 示例
 
 ```yaml
 mcp_servers:
@@ -25,6 +42,7 @@ mcp_servers:
     command: npx
     args: ["-y", "grok-search-rs-pc@latest"]
     env:
+      # 本分支别名（也可用 GROK_SEARCH_*）
       GROK_API_KEY: ${MCP_GROK_API_KEY}
       GROK_API_URL: ${MCP_GROK_API_URL}
       GROK_MODEL: ${MCP_GROK_MODEL}
@@ -32,27 +50,72 @@ mcp_servers:
       GROK_SEARCH_WEB_SEARCH: "false"
       TAVILY_API_KEY: ${MCP_TAVILY_API_KEY}
       TAVILY_API_URL: ${MCP_TAVILY_API_URL}
+      # FIRECRAWL_API_KEY: optional
     timeout: 180
     connect_timeout: 120
 ```
 
-## 本分支补丁
+#### 通用 JSON 示例
 
-| 项 | 说明 |
-|---|---|
-| `GROK_API_*` 别名 | 与常见 Python 配置同名 |
-| 今天/时间注入 | 减少二次搜时间 |
-| 默认不塞 `tools: web_search` | 降低 grok-4.5 双工具 400/429 |
-
-## 工具
-
-`web_search` · `get_sources` · `web_fetch` · `web_map` · `doctor`
-
-## 本地编译
-
-```bash
-cargo build --release
-# target/release/grok-search-rs
+```json
+{
+  "grok-search": {
+    "command": "npx",
+    "args": ["-y", "grok-search-rs-pc@latest"],
+    "env": {
+      "GROK_SEARCH_API_KEY": "",
+      "GROK_SEARCH_URL": "https://api.x.ai",
+      "GROK_SEARCH_MODEL": "grok-4.20-fast",
+      "GROK_SEARCH_WEB_SEARCH": "false",
+      "TAVILY_API_KEY": "",
+      "TAVILY_API_URL": "https://api.tavily.com"
+    }
+  }
+}
 ```
 
-平台产物：macOS universal + Windows x64。发包见 `docs/PUBLISH.md`（若有）。
+### 方式 B：全局安装
+
+```bash
+npm install -g grok-search-rs-pc
+# MCP command 改为: grok-search-rs
+```
+
+### 方式 C：源码编译
+
+```bash
+git clone -b personal-compat https://github.com/ZJ-zhangcn/GrokSearch-rs.git
+cd GrokSearch-rs
+cargo build --release
+# 客户端 command 指向 target/release/grok-search-rs
+```
+
+### 方式 D：全局配置文件
+
+```bash
+grok-search-rs --init
+${EDITOR:-nano} ~/.config/grok-search-rs/config.toml
+```
+
+环境变量模板可参考仓库 `.env.example`（注意本分支默认 `WEB_SEARCH=false` 的行为以运行时/补丁为准）。
+
+## 传输模式
+
+| 模式 | 条件 |
+|---|---|
+| xAI Responses | 配置 `GROK_SEARCH_*` / `GROK_API_*` 指向 Responses 兼容网关 |
+| OpenAI Chat Completions | 未设 Grok Key，而配置了 `OPENAI_COMPATIBLE_API_URL/KEY/MODEL` |
+
+可选 OAuth：`grok-search-rs login|status|logout`。
+
+## 验证
+
+在助手里调用 **`doctor`**，确认各上游 `reachable` 与 `transport`。
+
+## 发包（维护者）
+
+见 [`docs/PUBLISH.md`](docs/PUBLISH.md)。Release 走 tag + Actions；版本回写 `personal-compat`。
+
+## 上游
+
+完整英文说明、高级参数：上游仓库。日常接入请始终用 **`grok-search-rs-pc`**。
