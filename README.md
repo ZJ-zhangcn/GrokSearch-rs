@@ -1,5 +1,8 @@
 # GrokSearch-rs（personal-compat）
 
+中文 | [English](https://github.com/ZJ-zhangcn/GrokSearch-rs/blob/main/README.en.md)
+
+
 > **本仓库**：[`ZJ-zhangcn/GrokSearch-rs`](https://github.com/ZJ-zhangcn/GrokSearch-rs)  
 > **分支**：`personal-compat`  
 > **npm**：`grok-search-rs-pc`（**无需组织**）  
