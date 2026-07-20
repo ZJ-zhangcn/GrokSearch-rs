@@ -1,7 +1,7 @@
 {
-  "name": "@zj-zhangcn/grok-search-rs-linux-x64",
-  "version": "0.2.0",
-  "description": "Linux x64 binary for @zj-zhangcn/grok-search-rs (personal-compat)",
+  "name": "grok-search-rs-pc-linux-x64",
+  "version": "0.2.1",
+  "description": "Linux x64 binary for grok-search-rs-pc (not in default publish matrix)",
   "license": "MIT",
   "repository": {
     "type": "git",

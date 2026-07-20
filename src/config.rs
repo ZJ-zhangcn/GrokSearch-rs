@@ -346,7 +346,7 @@ impl Config {
             enrich_concurrency: usize_value(&map, "GROK_SEARCH_ENRICH_CONCURRENCY", 3).clamp(1, 5),
             enrich_max_chars: usize_value(&map, "GROK_SEARCH_ENRICH_MAX_CHARS", 15000),
             max_inline_sources: usize_value(&map, "GROK_SEARCH_MAX_INLINE_SOURCES", 5),
-            response_max_chars: usize_value(&map, "GROK_SEARCH_RESPONSE_MAX_CHARS", 60_000),
+            response_max_chars: usize_value(&map, "GROK_SEARCH_RESPONSE_MAX_CHARS", 45_000),
         }
     }
 
@@ -536,7 +536,7 @@ pub const CONFIG_TEMPLATE: &str = r#"# grok-search-rs global configuration
 # enrich_concurrency    = 3          # concurrent resolve_content calls per web_search (1..5)
 # enrich_max_chars      = 15000      # per-source inline content char cap
 # max_inline_sources    = 5          # max sources carrying inline content per response
-# response_max_chars    = 60000      # whole-response char budget (answer + inline content)
+# response_max_chars    = 45000      # whole-response char budget (answer + inline content); kept below the MCP client token ceiling (default ~25k tokens) after JSON serialization
 "#;
 
 fn load_file_map(path: &Path) -> Option<HashMap<String, String>> {
@@ -692,11 +692,13 @@ fn first_nonempty_opt(map: &HashMap<String, String>, keys: &[&str]) -> Option<St
     None
 }
 
+/// Two-state presence marker for a secret. Never emits any fragment of the
+/// value — mirrors [`Config::github_token_status`] so `doctor`/diagnostics on a
+/// public endpoint cannot leak even a prefix/suffix of a caller's key.
 fn redact(value: Option<&str>) -> String {
     match value {
-        None => "unset".to_string(),
-        Some(v) if v.len() <= 8 => "***".to_string(),
-        Some(v) => format!("{}***{}", &v[..4], &v[v.len() - 4..]),
+        Some(v) if !v.trim().is_empty() => "set".to_string(),
+        _ => "unset".to_string(),
     }
 }
 
