@@ -4,6 +4,39 @@ All notable changes to GrokSearch-rs are documented here.
 
 ## Unreleased
 
+## 0.1.18 - 2026-07-20
+
+### Added
+
+- **远程 Streamable HTTP 传输(可选,多租户 BYO-key)。** 通过 `http` Cargo
+  feature 开启(`--features http`,以 `--http` / `GROK_MCP_BIND` 启动),把同一套
+  工具暴露为远程 MCP 服务:单端点 `POST /mcp`,按客户端 `Accept` 返回
+  `application/json` 或单事件 SSE 流(Streamable HTTP 内容协商)。每个请求用
+  `X-Grok-Api-Key` / `X-Tavily-Api-Key` / `X-Firecrawl-Api-Key`(可选
+  `X-GitHub-Token`)携带各自的 key——服务端不存任何凭据、缺必需 key 直接 401、
+  OAuth 仅限 stdio。**默认 stdio 构建逐字节不变**(不链接 axum、运行时不变)。
+- **多网关白名单。** 远程调用方可用 `X-Grok-Base-Url` 头在运营方
+  `GROK_SEARCH_ALLOWED_GROK_URLS` 白名单内切换 Grok 兼容网关,获得与本地一致的
+  "任选网关 + 对应 key"自由,又不会沦为开放 SSRF 代理。
+- **Docker 部署。** 随附 `Dockerfile`、`Dockerfile.deploy`(仅拷贝预编译静态
+  musl 二进制,适合低内存主机)、`docker-compose.yml` + `Caddyfile`(Caddy 自动
+  HTTPS + 按路径路由 `/<service>/mcp`)。
+
+### Security
+
+- 远程 HTTP 路径加固(均不影响本地 stdio):`web_fetch`/`web_map` 的 SSRF 守卫
+  (scheme 白名单 + IP 字面量/DNS 解析后的公网校验),重定向对 IP 与 hostname
+  都校验(防 DNS-rebinding);每租户缓存命名空间;`doctor` 脱敏降为 set/unset;
+  数字入参钳制(`web_fetch` 缺省也强制 `max_chars` 上限);64 KB 请求体上限;
+  并发上限(超限 429);Streamable HTTP 协议版本头校验(不支持返回 400)。
+
+### Changed
+
+- `web_search` 整包响应预算 `response_max_chars` 默认从 60000 降到 45000,贴合
+  MCP 客户端 token 上限(序列化后)。
+- Tavily 多 key 环的起始游标改为随机,让"每请求重建 provider"的远程租户也能
+  跨请求把负载均摊到各 key(本地 stdio 的持久轮询不变)。
+
 ## 0.1.17 - 2026-06-12
 
 ### Added
