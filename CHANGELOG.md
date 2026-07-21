@@ -4,10 +4,20 @@ All notable changes to GrokSearch-rs are documented here.
 
 ## Unreleased
 
+## 0.1.20 - 2026-07-21
+
 ### Added
 
 - **`X-Grok-Model` 请求头(远程 HTTP)。** 调用方可按请求指定 Grok 模型名,与
   `X-Grok-Base-Url` 配套(模型 id 因网关而异);缺省沿用运营方默认模型。
+
+### Fixed
+
+- **`web_fetch` 失败原因不再误报为配置缺失。** 通用 URL 抓取在"主源
+  (Tavily)已配置但抓取失败、且无 Firecrawl 兜底"时,此前会误报
+  `missing required config: TAVILY_API_KEY or FIRECRAWL_API_KEY`;现在透传
+  真实的 provider 错误(或明确的空内容提示),仅在两个供应商都未配置时才报
+  配置缺失。
 
 ## 0.1.19 - 2026-07-21
 
