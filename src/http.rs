@@ -38,6 +38,11 @@ const MAX_BODY_BYTES: usize = 64 * 1024;
 /// Max concurrent in-flight requests; excess gets 429 to protect the 1 GB box.
 const MAX_CONCURRENT_REQUESTS: usize = 32;
 
+/// Max concurrent host resolutions (caller-gateway + fetch-tool SSRF
+/// validation); excess gets 503. Bounds how many (potentially hung) blocking
+/// getaddrinfo calls can run at once.
+const MAX_DNS_LOOKUPS: usize = 8;
+
 /// Protocol revisions the Streamable HTTP transport implements. Excludes
 /// 2024-11-05 (the deprecated HTTP+SSE transport this endpoint does not serve)
 /// and 2025-03-26 (which still mandates JSON-RPC batching — removed only in
@@ -81,11 +86,13 @@ struct AppState {
     allowed_origins: Arc<Option<HashSet<String>>>,
     /// Bounds concurrent in-flight requests (DoS protection on a small box).
     limiter: Arc<Semaphore>,
-    /// Grok-compatible gateways a request may target via `X-Grok-Base-Url`
-    /// (stored normalized). Always contains the operator default; extra ones
-    /// come from GROK_SEARCH_ALLOWED_GROK_URLS. Keeps per-request gateway
-    /// selection from becoming an open SSRF proxy.
-    allowed_grok_urls: Arc<HashSet<String>>,
+    /// Caps concurrent host resolutions (gateway + fetch-tool validation) so
+    /// hung blocking getaddrinfo calls (which outlive their timeout) can't
+    /// pile up threads.
+    dns_limiter: Arc<Semaphore>,
+    /// Operator request timeout, reused to build a per-request DNS-pinned client
+    /// for a caller-supplied gateway (`X-Grok-Base-Url`).
+    timeout: std::time::Duration,
 }
 
 /// Run the HTTP transport, binding `bind` (loopback in production, behind
@@ -98,7 +105,6 @@ pub async fn run_http(base_env: HashMap<String, String>, bind: SocketAddr) -> an
     let http_client = crate::providers::http::build_restricted_client(operator_cfg.timeout);
     let cache = Arc::new(Mutex::new(SourceCache::new(operator_cfg.cache_size)));
     let allowed_origins = parse_allowed_origins(&base_env);
-    let allowed_grok_urls = parse_allowed_grok_urls(&base_env, &operator_cfg.grok_api_url);
 
     let state = AppState {
         http_client,
@@ -106,7 +112,8 @@ pub async fn run_http(base_env: HashMap<String, String>, bind: SocketAddr) -> an
         base_env: Arc::new(strip_secrets(base_env)),
         allowed_origins: Arc::new(allowed_origins),
         limiter: Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS)),
-        allowed_grok_urls: Arc::new(allowed_grok_urls),
+        dns_limiter: Arc::new(Semaphore::new(MAX_DNS_LOOKUPS)),
+        timeout: operator_cfg.timeout,
     };
 
     // Only POST is registered; axum answers other methods on /mcp with 405.
@@ -210,35 +217,100 @@ async fn mcp_post(State(state): State<AppState>, request: axum::extract::Request
     // 4. Derive a per-request config from operator defaults + header keys, then
     //    build a request-scoped, fully-credentialed service. Missing required
     //    key -> 401 (fail-closed); OAuth -> 400. Never falls back to a server key.
-    // Multi-gateway: a client may pick a Grok gateway via X-Grok-Base-Url, but
-    // only from the operator allowlist; otherwise the operator default is used.
-    // This gives remote callers the same "any gateway + matching key" freedom as
-    // the stdio path, without becoming an open proxy.
-    let gateway = match resolve_gateway(&headers, &state.allowed_grok_urls) {
-        Ok(gateway) => gateway,
-        Err(message) => return json_rpc_error(StatusCode::FORBIDDEN, id, -32602, message),
-    };
+    let gateway = resolve_gateway(&headers);
     let config = request_config(&state.base_env, &headers, gateway.as_deref());
-    let service =
-        match SearchService::for_request(state.http_client.clone(), state.cache.clone(), config) {
-            Ok(service) => service,
-            Err(err) => {
-                let status = match err {
-                    GrokSearchError::MissingConfig(_) => StatusCode::UNAUTHORIZED,
-                    _ => StatusCode::BAD_REQUEST,
-                };
-                return json_rpc_error(status, id, err.code() as i64, err.to_string());
+
+    // Build with the shared client FIRST so a missing/invalid key fails fast
+    // (401) BEFORE any gateway DNS: an unauthenticated request must never reach
+    // the resolver, else a bogus/slow `X-Grok-Base-Url` host would hold a
+    // concurrency permit until resolution (unauthenticated resolver DoS).
+    let service = match SearchService::for_request(
+        state.http_client.clone(),
+        state.cache.clone(),
+        config.clone(),
+    ) {
+        Ok(service) => service,
+        Err(err) => return for_request_error(id.clone(), err),
+    };
+
+    // Multi-gateway: a client may point at any Grok-compatible gateway via
+    // X-Grok-Base-Url (BYO gateway + matching key, same freedom as stdio). Its
+    // host is SSRF-validated AND the outbound connection is PINNED to the
+    // validated public IPs, so reqwest cannot re-resolve the hostname to an
+    // internal / metadata address between the check and the request
+    // (DNS-rebinding SSRF).
+    let service = if let Some(url) = gateway.as_deref() {
+        // Caller gateways must be HTTPS: the request carries the caller's bearer
+        // key, so a plaintext http:// gateway (typo/downgrade) would leak it on
+        // the wire. (URL-fetch tools still allow http; this is the gateway only.)
+        if !gateway_is_https(url) {
+            return json_rpc_error(
+                StatusCode::BAD_REQUEST,
+                id.clone(),
+                -32602,
+                "X-Grok-Base-Url must use https".to_string(),
+            );
+        }
+        // Cap concurrent gateway-host resolutions: a blocking getaddrinfo can
+        // outlive its 5s timeout, so bound how many run at once (the permit is
+        // held until the lookup returns) — a hung host can't pile up threads.
+        let dns_permit = match state.dns_limiter.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                return json_rpc_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    id.clone(),
+                    -32603,
+                    "gateway resolver busy".to_string(),
+                )
             }
         };
+        let addrs = match validate_public_url(url, Some(dns_permit)).await {
+            Ok(addrs) => addrs,
+            Err((status, message)) => return json_rpc_error(status, id.clone(), -32602, message),
+        };
+        let client = match pinned_gateway_client(url, &addrs, state.timeout) {
+            Ok(client) => client,
+            Err((status, message)) => return json_rpc_error(status, id.clone(), -32602, message),
+        };
+        // The pinned, no-redirect client applies to the GROK provider only;
+        // Tavily/Firecrawl/source fetching keep the shared restricted client
+        // (which follows redirects, re-validating every hop).
+        match SearchService::for_request_with_grok_client(
+            state.http_client.clone(),
+            client,
+            state.cache.clone(),
+            config,
+        ) {
+            Ok(service) => service,
+            Err(err) => return for_request_error(id.clone(), err),
+        }
+    } else {
+        service
+    };
 
     // 5. Clamp abusable numeric args (DoS) — HTTP path only; stdio is untouched.
     clamp_request_args(&mut request);
 
     // 6. SSRF guard: for URL-fetching tools, block non-public / bad-scheme
     //    targets before any server-side request is made. HTTP path only, so
-    //    local stdio users keep full fetch capability (e.g. localhost).
+    //    local stdio users keep full fetch capability (e.g. localhost). The
+    //    hostname lookup takes a DNS permit too: a timed-out getaddrinfo keeps
+    //    its blocking thread alive, so the same semaphore that bounds gateway
+    //    lookups must bound fetch-validation lookups.
     if let Some(url) = fetch_tool_url(&request) {
-        if let Err((status, message)) = validate_public_url(url).await {
+        let dns_permit = match state.dns_limiter.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                return json_rpc_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    id,
+                    -32603,
+                    "resolver busy".to_string(),
+                )
+            }
+        };
+        if let Err((status, message)) = validate_public_url(url, Some(dns_permit)).await {
             return json_rpc_error(status, id, -32602, message);
         }
     }
@@ -294,9 +366,13 @@ fn fetch_tool_url(request: &Value) -> Option<&str> {
 
 /// Reject a URL that could drive a server-side request at a non-public target
 /// (SSRF): bad scheme, or a host that is / resolves to a private, loopback,
-/// link-local (incl. cloud metadata), or CGNAT address. Returns
-/// `(status, message)` on rejection.
-async fn validate_public_url(raw: &str) -> Result<(), (StatusCode, String)> {
+/// link-local (incl. cloud metadata), or CGNAT address. On success returns the
+/// validated public IP(s) the host resolves to, so the caller can pin the
+/// actual connection to them (closing DNS-rebinding between check and use).
+async fn validate_public_url(
+    raw: &str,
+    dns_permit: Option<tokio::sync::OwnedSemaphorePermit>,
+) -> Result<Vec<std::net::IpAddr>, (StatusCode, String)> {
     let parsed = url::Url::parse(raw)
         .map_err(|err| (StatusCode::BAD_REQUEST, format!("invalid url: {err}")))?;
     match parsed.scheme() {
@@ -316,7 +392,7 @@ async fn validate_public_url(raw: &str) -> Result<(), (StatusCode, String)> {
     let literal = host.trim_start_matches('[').trim_end_matches(']');
     if let Ok(ip) = literal.parse::<std::net::IpAddr>() {
         return if crate::providers::http::is_public_ip(&ip) {
-            Ok(())
+            Ok(vec![ip])
         } else {
             Err((
                 StatusCode::FORBIDDEN,
@@ -325,16 +401,30 @@ async fn validate_public_url(raw: &str) -> Result<(), (StatusCode, String)> {
         };
     }
 
-    // Hostname: resolve and require every resolved address to be public.
+    // Hostname: resolve (under a hard deadline so a slow resolver can't hold a
+    // concurrency permit) and require every resolved address to be public.
     let port = parsed.port_or_known_default().unwrap_or(443);
     let host_owned = host.to_string();
-    let resolved = tokio::task::spawn_blocking(move || {
-        use std::net::ToSocketAddrs;
-        (host_owned.as_str(), port)
-            .to_socket_addrs()
-            .map(|iter| iter.map(|addr| addr.ip()).collect::<Vec<_>>())
-    })
+    let resolved = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::task::spawn_blocking(move || {
+            // Hold the resolver permit until getaddrinfo actually returns: the
+            // 5s timeout abandons this task but cannot cancel it, so the permit
+            // (not the timeout) is what bounds concurrent hung lookups.
+            let _dns_permit = dns_permit;
+            use std::net::ToSocketAddrs;
+            (host_owned.as_str(), port)
+                .to_socket_addrs()
+                .map(|iter| iter.map(|addr| addr.ip()).collect::<Vec<_>>())
+        }),
+    )
     .await
+    .map_err(|_| {
+        (
+            StatusCode::GATEWAY_TIMEOUT,
+            "host resolution timed out".to_string(),
+        )
+    })?
     .map_err(|err| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -346,15 +436,51 @@ async fn validate_public_url(raw: &str) -> Result<(), (StatusCode, String)> {
     if resolved.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "host did not resolve".to_string()));
     }
-    for ip in resolved {
-        if !crate::providers::http::is_public_ip(&ip) {
+    for ip in &resolved {
+        if !crate::providers::http::is_public_ip(ip) {
             return Err((
                 StatusCode::FORBIDDEN,
                 "url resolves to a non-public address".to_string(),
             ));
         }
     }
-    Ok(())
+    Ok(resolved)
+}
+
+/// Build a restricted client whose DNS for the gateway `host` is pinned to
+/// `addrs` — the IPs [`validate_public_url`] just verified are public, at the
+/// gateway port. Connecting only to a pre-validated address closes the
+/// DNS-rebinding window between the SSRF check and the actual request.
+fn pinned_gateway_client(
+    url: &str,
+    addrs: &[std::net::IpAddr],
+    timeout: std::time::Duration,
+) -> Result<reqwest::Client, (StatusCode, String)> {
+    let parsed = url::Url::parse(url)
+        .map_err(|err| (StatusCode::BAD_REQUEST, format!("invalid url: {err}")))?;
+    let host = parsed
+        .host_str()
+        .ok_or((StatusCode::BAD_REQUEST, "url has no host".to_string()))?;
+    let port = parsed.port_or_known_default().unwrap_or(443);
+    let socket_addrs: Vec<std::net::SocketAddr> = addrs
+        .iter()
+        .map(|ip| std::net::SocketAddr::new(*ip, port))
+        .collect();
+    Ok(crate::providers::http::build_restricted_client_pinned(
+        timeout,
+        host,
+        &socket_addrs,
+    ))
+}
+
+/// Map a `SearchService::for_request` construction error to a JSON-RPC HTTP
+/// response: a missing key -> 401 (fail-closed), OAuth / other -> 400.
+fn for_request_error(id: Value, err: GrokSearchError) -> Response {
+    let status = match err {
+        GrokSearchError::MissingConfig(_) => StatusCode::UNAUTHORIZED,
+        _ => StatusCode::BAD_REQUEST,
+    };
+    json_rpc_error(status, id, err.code() as i64, err.to_string())
 }
 
 /// Clamp abusable numeric tool arguments to sane upper bounds so a single
@@ -428,38 +554,15 @@ fn request_config(
     Config::from_env_map(map)
 }
 
-/// Resolve the Grok gateway for a request. A client may request one via
-/// `X-Grok-Base-Url`; it is honored only if its normalized form is on the
-/// operator allowlist, otherwise the request is rejected. Absent header ->
-/// `None` (the operator default gateway is used).
-fn resolve_gateway(
-    headers: &HeaderMap,
-    allowed: &HashSet<String>,
-) -> Result<Option<String>, String> {
-    let requested = header_str(headers, "x-grok-base-url")
+/// The Grok gateway a request targets via `X-Grok-Base-Url`, honored verbatim
+/// (BYO gateway). Absent/empty header -> `None` (the operator default gateway
+/// is used). The returned URL's host is SSRF-validated by the caller before
+/// use, so any *public* gateway is allowed but internal addresses are not.
+fn resolve_gateway(headers: &HeaderMap) -> Option<String> {
+    header_str(headers, "x-grok-base-url")
         .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let Some(raw) = requested else {
-        return Ok(None);
-    };
-    if allowed.contains(&crate::config::normalize_v1_base(raw)) {
-        Ok(Some(raw.to_string()))
-    } else {
-        Err(format!("grok gateway not allowed: {raw}"))
-    }
-}
-
-/// Build the set of allowed (normalized) Grok gateways: the operator default
-/// plus any comma-separated GROK_SEARCH_ALLOWED_GROK_URLS entries.
-fn parse_allowed_grok_urls(env: &HashMap<String, String>, default_url: &str) -> HashSet<String> {
-    let mut set = HashSet::new();
-    set.insert(default_url.to_string());
-    if let Some(raw) = env.get("GROK_SEARCH_ALLOWED_GROK_URLS") {
-        for entry in raw.split(',').map(str::trim).filter(|value| !value.is_empty()) {
-            set.insert(crate::config::normalize_v1_base(entry));
-        }
-    }
-    set
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -492,6 +595,15 @@ fn parse_allowed_origins(env: &HashMap<String, String>) -> Option<HashSet<String
     } else {
         Some(set)
     }
+}
+
+/// A caller-supplied gateway must be HTTPS: the request carries the caller's
+/// bearer key, so a plaintext `http://` gateway would leak it on the wire.
+/// (URL-fetch tools still allow `http`; this restriction is gateway-only.)
+fn gateway_is_https(url: &str) -> bool {
+    url::Url::parse(url)
+        .map(|parsed| parsed.scheme() == "https")
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -538,25 +650,20 @@ mod tests {
     }
 
     #[test]
-    fn resolve_gateway_enforces_allowlist() {
-        let mut allowed = HashSet::new();
-        allowed.insert("https://api.x.ai/v1".to_string());
-        allowed.insert("https://api.modelverse.cn/v1".to_string());
+    fn resolve_gateway_reads_header_verbatim() {
         // No header -> operator default (None).
-        assert_eq!(resolve_gateway(&headers(&[]), &allowed).unwrap(), None);
-        // Allowlisted gateway (normalization-insensitive) -> honored verbatim.
-        let got = resolve_gateway(
-            &headers(&[("X-Grok-Base-Url", "https://api.modelverse.cn")]),
-            &allowed,
-        )
-        .unwrap();
-        assert_eq!(got.as_deref(), Some("https://api.modelverse.cn"));
-        // Not allowlisted -> rejected.
-        assert!(resolve_gateway(
-            &headers(&[("X-Grok-Base-Url", "https://evil.example")]),
-            &allowed
-        )
-        .is_err());
+        assert_eq!(resolve_gateway(&headers(&[])), None);
+        // Any gateway is honored verbatim (allowlist removed); the host is
+        // SSRF-validated separately in the request path.
+        assert_eq!(
+            resolve_gateway(&headers(&[("X-Grok-Base-Url", "https://api.x.ai")])).as_deref(),
+            Some("https://api.x.ai"),
+        );
+        // Empty / whitespace-only header -> None.
+        assert_eq!(
+            resolve_gateway(&headers(&[("X-Grok-Base-Url", "   ")])),
+            None
+        );
     }
 
     #[test]
@@ -617,7 +724,7 @@ mod tests {
             "gopher://example.com/",                     // bad scheme
         ] {
             assert!(
-                validate_public_url(bad).await.is_err(),
+                validate_public_url(bad, None).await.is_err(),
                 "expected {bad} to be rejected"
             );
         }
@@ -625,9 +732,20 @@ mod tests {
 
     #[tokio::test]
     async fn validate_public_url_allows_public_ip_literal() {
-        // Public IP literals pass with no DNS lookup.
-        assert!(validate_public_url("https://1.1.1.1/").await.is_ok());
-        assert!(validate_public_url("http://8.8.8.8/").await.is_ok());
+        // Public IP literals pass with no DNS lookup, returning the pinned IP.
+        assert_eq!(
+            validate_public_url("https://1.1.1.1/", None).await.unwrap(),
+            vec!["1.1.1.1".parse::<std::net::IpAddr>().unwrap()]
+        );
+        assert!(validate_public_url("http://8.8.8.8/", None).await.is_ok());
+    }
+
+    #[test]
+    fn gateway_is_https_rejects_plaintext() {
+        assert!(gateway_is_https("https://api.x.ai/v1"));
+        assert!(!gateway_is_https("http://api.x.ai/v1"));
+        assert!(!gateway_is_https("ftp://api.x.ai"));
+        assert!(!gateway_is_https("not a url"));
     }
 
     #[test]
