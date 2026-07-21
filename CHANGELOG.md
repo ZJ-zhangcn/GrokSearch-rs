@@ -4,6 +4,43 @@ All notable changes to GrokSearch-rs are documented here.
 
 ## Unreleased
 
+## 0.1.20 - 2026-07-21
+
+### Added
+
+- **`X-Grok-Model` 请求头(远程 HTTP)。** 调用方可按请求指定 Grok 模型名,与
+  `X-Grok-Base-Url` 配套(模型 id 因网关而异);缺省沿用运营方默认模型。
+
+### Fixed
+
+- **`web_fetch` 失败原因不再误报为配置缺失。** 通用 URL 抓取在"主源
+  (Tavily)已配置但抓取失败、且无 Firecrawl 兜底"时,此前会误报
+  `missing required config: TAVILY_API_KEY or FIRECRAWL_API_KEY`;现在透传
+  真实的 provider 错误(或明确的空内容提示),仅在两个供应商都未配置时才报
+  配置缺失。
+
+## 0.1.19 - 2026-07-21
+
+### Changed
+
+- **移除网关白名单,任意公网网关直连。** 远程 HTTP 调用方的 `X-Grok-Base-Url`
+  不再受 `GROK_SEARCH_ALLOWED_GROK_URLS` 白名单限制(该环境变量现为空操作),
+  任意 **https、公网** 的 Grok 兼容网关配上自己的 key 即可使用,与本地 stdio
+  的"任选网关 + 对应 key"自由一致。文档示例同步改为通用网关占位符。
+
+### Security
+
+- **调用方网关的 SSRF / 滥用防线**(替代白名单;仅作用于远程 HTTP 路径):网关
+  host 必须解析为公网地址,且出站连接**钉在校验过的 IP** 上(封 DNS 重绑定
+  TOCTOU);网关请求不跟随重定向;强制 https(防 bearer key 明文外泄);凭证
+  检查先于任何网关 DNS(未鉴权请求不触达解析器);所有 SSRF 校验的 DNS 解析受
+  有界信号量与 5s 超时保护(挂起的 getaddrinfo 线程有硬上限,超限 503)。钉
+  IP 的无重定向 client 仅用于 Grok 网关请求,Tavily/Firecrawl/网页抓取仍走共享
+  受限 client(重定向逐跳复检)。
+- **租户缓存命名空间纳入网关。** `get_sources` 的租户标签由"key 哈希"改为
+  "网关 URL + key 哈希"——任意网关下,两个网关可能签发相同的 key 字符串,不再
+  会因此共享缓存命名空间(stdio 行为不变)。
+
 ## 0.1.18 - 2026-07-20
 
 ### Added
