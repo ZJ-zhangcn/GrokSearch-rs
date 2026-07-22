@@ -1,7 +1,7 @@
 {
   "name": "grok-search-rs-pc-win32-arm64",
-  "version": "0.2.2",
-  "description": "Windows arm64 binary for grok-search-rs-pc (not in default publish matrix)",
+  "version": "0.2.3",
+  "description": "Windows arm64 binary for grok-search-rs-pc",
   "license": "MIT",
   "repository": {
     "type": "git",

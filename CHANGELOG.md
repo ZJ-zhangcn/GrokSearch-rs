@@ -2,7 +2,53 @@
 
 All notable changes to GrokSearch-rs are documented here.
 
-## Unreleased
+## 0.1.22 - 2026-07-22
+
+### Added
+
+- **发版产物新增 HTTP 服务端形态(免本机编译)。** 此前 GitHub Release / npm 的
+  全部二进制均为 stdio-only(HTTP 传输在编译期 feature 门控),想自托管远程
+  MCP 只能源码编译——低内存/小硬盘的 ARM 板(如 RK3399)上极易 OOM、爆盘。
+  现在 tag 发版额外产出:(1) `grok-search-rs-http_Linux_{x86_64,aarch64}.tar.gz`
+  静态 musl 服务端二进制(`--features http` + `release-http` profile),下载
+  即可 `--http` 起服;(2) 多架构(amd64/arm64)运行时镜像推送到
+  `ghcr.io/episkey-g/grok-search-rs`(`X.Y.Z` + `latest` 标签,基于
+  `Dockerfile.deploy`),`docker pull` 即得对应架构。macOS/Windows 资产保持
+  stdio-only 不变。
+
+## 0.1.21 - 2026-07-21
+
+### Fixed
+
+- **`grok_responses` 来源的 `title`/`published_date` 不再几乎恒为 null(#21)。**
+  多数 Grok 引文以裸 URL 或内联 `[[n]](url)` 形式到达,结构上不携带元数据;
+  少数结构化 annotation 甚至把引文序号("1"、"2")当作 title。现在解析层拒收
+  纯数字/单字符的垃圾 title,enrichment 阶段在抓取正文的同时回填缺失元数据:
+  title 优先取源提供商的结构化字段(Tavily extract 的 `title`、Firecrawl 的
+  `metadata.title`),否则回退到正文首个 Markdown 标题;published_date 仅在
+  提供商返回时回填(Firecrawl `publishedTime` / `article:published_time`)。
+  只回填 None 字段,上游真实元数据永不覆盖;抓取失败与未 enrich 的尾部来源
+  保持诚实的 null。`SourceProvider::fetch` 相应改为返回结构化 `FetchedPage`
+  (content + title + published_date),`web_fetch` 行为不变。
+
+### Added
+
+- **`Dockerfile.deploy` 多平台镜像(amd64/arm64)。** 运行时镜像按 BuildKit 的
+  `TARGETPLATFORM` 从 `dist/<os>/<arch>/` 选取预编译 musl 二进制;新增
+  `scripts/build-deploy-dist.sh` 用 cargo-zigbuild 一键交叉编译并装配 `dist/`
+  布局,`docker buildx build --platform linux/amd64,linux/arm64` 即可产出多架构
+  镜像,单平台 `docker build` 仍跟随宿主架构(构建上下文由
+  `Dockerfile.deploy.dockerignore` 收敛为仅 `dist/`)。
+
+### Changed
+
+- **MCP `web_search` 不再暴露 `model` / `platform` 入参(#15)。** 此前工具 schema
+  把这两个字段作为无约束的自由字符串开放给调用方 LLM,客户端模型会自行填写——
+  例如把 `model` 填成并不存在的 `grok-4`——从而覆盖运营方在 `GROK_SEARCH_MODEL`
+  配置的默认模型,并把无效模型名透传给上游。现在 schema 不再声明这两个参数、
+  服务端也忽略任何传入值:Grok 模型只由运营方配置(`GROK_SEARCH_MODEL`)或按
+  请求的 `X-Grok-Model` 头决定,不再受调用方 AI 影响;focus platform 同理不再
+  由 AI 指定。
 
 ## 0.1.20 - 2026-07-21
 

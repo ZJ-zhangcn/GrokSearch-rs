@@ -28,6 +28,19 @@ MCP 工具集与上游一致：`web_search` · `get_sources` · `web_fetch` · `
 
 ### 方式 A：npx（推荐，不 clone）
 
+**No local build needed.** Every release ships ready‑to‑run server artifacts for Linux
+`x86_64` + `aarch64` (static musl) — ideal for low‑RAM/small‑disk boards where a native
+`cargo build` would OOM or fill the disk:
+
+- **Prebuilt binary** — download `grok-search-rs-http_Linux_<arch>.tar.gz` from the
+  [latest release](https://github.com/Episkey-G/GrokSearch-rs/releases/latest) and run
+  `GROK_MCP_BIND=0.0.0.0:8080 ./grok-search-rs --http`. (The plain `grok-search-rs_…`
+  assets are **stdio‑only**: the HTTP transport is compile‑time gated and not in them.)
+- **Docker image** — multi‑arch `amd64`/`arm64`:
+  `docker pull ghcr.io/episkey-g/grok-search-rs:latest` (serves on `:8080`).
+
+Building from source instead:
+
 ```bash
 npx -y grok-search-rs-pc@latest
 ```
