@@ -166,8 +166,14 @@ jobs:
             flat/*.zip
             flat/SHA256SUMS
 
+  # personal-compat ships stdio npm (macOS + Windows) only. Upstream's HTTP
+  # Linux matrix / GHCR image is intentionally not built here, so this job
+  # would fail looking for grok-search-rs-http_Linux_* artifacts. Keep the
+  # job definition for easier re-enable if personal ever ships HTTP images,
+  # but skip it by default so Release stays green.
   publish-image:
     name: Publish multi-arch image to GHCR
+    if: false
     needs: build-release
     runs-on: ubuntu-latest
     permissions:
