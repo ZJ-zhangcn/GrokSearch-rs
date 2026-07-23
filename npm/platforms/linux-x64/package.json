@@ -1,6 +1,6 @@
 {
   "name": "grok-search-rs-pc-linux-x64",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "linux x64 binary for grok-search-rs-pc",
   "license": "MIT",
   "repository": {

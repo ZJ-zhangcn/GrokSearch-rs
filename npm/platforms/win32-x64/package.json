@@ -1,6 +1,6 @@
 {
   "name": "grok-search-rs-pc-win32-x64",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Windows x64 binary for grok-search-rs-pc",
   "license": "MIT",
   "repository": {

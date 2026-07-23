@@ -654,10 +654,10 @@ fn decide_transport(map: &HashMap<String, String>, auth_mode: AuthMode) -> Trans
         .map(|v| !v.is_empty())
         .unwrap_or(false);
 
-    if matches!(mode.as_str(), "chat" | "chat_completions" | "completions") {
-        if (compat_url_set && compat_key_set) || grok_key_set {
-            return Transport::ChatCompletions;
-        }
+    if matches!(mode.as_str(), "chat" | "chat_completions" | "completions")
+        && ((compat_url_set && compat_key_set) || grok_key_set)
+    {
+        return Transport::ChatCompletions;
     }
 
     if grok_key_set {

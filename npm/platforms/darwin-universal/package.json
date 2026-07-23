@@ -1,6 +1,6 @@
 {
   "name": "grok-search-rs-pc-darwin-universal",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "macOS universal binary for grok-search-rs-pc",
   "license": "MIT",
   "repository": {

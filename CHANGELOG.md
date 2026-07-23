@@ -4,6 +4,15 @@ All notable changes to GrokSearch-rs are documented here.
 
 ## Unreleased
 
+## 0.2.5 - 2026-07-23
+
+### Fixed
+
+- **个人发布质量门恢复全绿。** 将 transport 选择中的等价嵌套条件收敛为单个 guard，消除 `clippy::collapsible_if`；行为不变。
+- **个人默认配置与发布说明对齐实际行为。** `.env.example` 明确 `GROK_SEARCH_WEB_SEARCH=false`，README 的 npx 说明仅描述本 fork 实际发布的 macOS universal / Windows x64 stdio 产物，不再误指向上游 Linux HTTP/Docker 资产。
+
+## 0.2.4 - 2026-07-23
+
 ### Added
 
 - **`web_fetch` 新增 GitHub Release 专项抽取器(`source_type: github_release`)。**
