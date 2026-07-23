@@ -2,6 +2,43 @@
 
 All notable changes to GrokSearch-rs are documented here.
 
+## Unreleased
+
+### Added
+
+- **`web_fetch` 新增 GitHub Release 专项抽取器(`source_type: github_release`)。**
+  此前 release 页只能走 generic 抓取,而 GitHub 前端是 JS 渲染的,抓到的多为
+  "{{ message }}"、fork/star 按钮等模板噪音(实测 original_length 仅 ~1.4k,
+  release notes 基本丢失)。现在 `/releases/tag/<tag>` 与 `/releases/latest`
+  两类 URL 改走 GitHub REST API(`GET /repos/{owner}/{repo}/releases/tags/{tag}`
+  / `…/releases/latest`),输出 tag、发布日期、作者、prerelease 标记与完整
+  release notes Markdown。复用 `GITHUB_TOKEN` 认证(未配置时走匿名限流路径);
+  API 失败时按既有语义回退 generic 并携带 `fallback_reason`。release 列表页
+  (`/releases`)与资产下载链接(`/releases/download/…`)保持 generic 路径不变。
+
+### Fixed
+
+- **`tavily_enrichment` 补充来源不再混入与查询无关的低质页面。** `web_search`
+  把用户的自然语言 query 原样透传给 Tavily,长句易被单个通用词带偏——实测
+  "latest rmcp Rust MCP SDK release version and what changed" 返回的 5 条补充
+  结果全是 "latest" 的词典释义页与新闻门户首页(Tavily 自身相关性 score 仅
+  0.030–0.040,正常在题结果 ≥ 0.49),此前解析层丢弃 score 字段照单全收,
+  垃圾页面以 `tavily_enrichment`/`tavily_fallback` 身份进入输出并浪费
+  enrichment 抓取与响应预算。现在 `normalize_tavily_results` 丢弃 score <
+  0.1 的搜索结果:全部被过滤时 speculative 预取自然落到 Firecrawl 兜底,
+  无 score 的条目(map 端点、API 演进)照旧保留,`web_map` 行为不变。
+  同时收紧兜底语义(Codex 评审):Firecrawl 完全无视
+  include/exclude_domains 与 recency_days,带这些约束的请求不再落入
+  Firecrawl——约束请求 Tavily-or-nothing,不会静默拿到未过滤的补充来源。
+- **fallback 路径的 Firecrawl 来源 `provider` 标签从 `firecrawl_enrichment` 修正为
+  `firecrawl_fallback`。** Grok 失败或不可验证、且 Tavily 无结果时,Firecrawl 兜底
+  来源此前被标为 `firecrawl_enrichment`,与同一响应的 `search_provider=source_fallback`
+  / `fallback_used=true` 自相矛盾——标签语义是「provider 名 + 路径后缀」,
+  `_enrichment` 仅指 Grok 成功后的补充来源,按后缀区分补充/兜底的客户端会把兜底
+  来源误判为补充来源。该错位源自最初 firecrawl 分支硬编码标签、忽略路径参数,
+  后续重构机械保留。现修正标签并补 fallback 路径 provenance 测试,
+  docs/ARCHITECTURE.md 的 provenance 枚举同步新增 `firecrawl_fallback`。
+
 ## 0.1.22 - 2026-07-22
 
 ### Added

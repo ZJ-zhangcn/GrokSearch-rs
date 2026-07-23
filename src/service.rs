@@ -608,10 +608,18 @@ impl SearchService {
                 }
             }
         }
-        if let Some(provider) = &self.fallback_sources {
-            if let Ok(sources) = provider.search_sources(query, count, filters).await {
-                if !sources.is_empty() {
-                    return (sources, RawSourceOrigin::Fallback);
+        // The fallback source provider (Firecrawl) ignores `SearchFilters`
+        // outright — it has no structured recency/domain support — so a
+        // filter-constrained request must never fall through: swapping
+        // constrained Tavily results for unconstrained Firecrawl ones would
+        // silently violate the include/exclude/recency contract. Constrained
+        // requests are Tavily-or-nothing.
+        if filters.is_empty() {
+            if let Some(provider) = &self.fallback_sources {
+                if let Ok(sources) = provider.search_sources(query, count, filters).await {
+                    if !sources.is_empty() {
+                        return (sources, RawSourceOrigin::Fallback);
+                    }
                 }
             }
         }
@@ -992,7 +1000,7 @@ fn enrichment_label(origin: RawSourceOrigin) -> &'static str {
 fn fallback_label(origin: RawSourceOrigin) -> &'static str {
     match origin {
         RawSourceOrigin::Primary => "tavily_fallback",
-        RawSourceOrigin::Fallback => "firecrawl_enrichment",
+        RawSourceOrigin::Fallback => "firecrawl_fallback",
         RawSourceOrigin::None => "tavily_fallback",
     }
 }
