@@ -7,6 +7,7 @@ use crate::error::{GrokSearchError, Result};
 
 pub mod arxiv;
 pub mod github;
+pub mod github_raw;
 pub mod stackexchange;
 pub mod wikipedia;
 
@@ -103,6 +104,7 @@ impl SourceRouter {
     /// chain (GitHub → StackExchange → arXiv → Wikipedia). Empty for now.
     pub fn from_config(config: &crate::config::Config) -> Self {
         Self::with_extractors(vec![
+            Box::new(github_raw::GithubRawFileExtractor),
             Box::new(github::GithubIssueExtractor {
                 token: config.github_token.clone(),
             }),
@@ -311,6 +313,17 @@ mod tests {
         let router = SourceRouter::default();
         let url = Url::parse("https://github.com/o/r/issues/1").unwrap();
         assert!(router.find(&url).is_none());
+    }
+
+    #[test]
+    fn production_router_reads_raw_github_files_directly() {
+        let config = crate::config::Config::from_env_map([] as [(&str, &str); 0]);
+        let router = SourceRouter::from_config(&config);
+        let url = Url::parse("https://raw.githubusercontent.com/ZJ-zhangcn/clash-rules/main/rules/clash/Customer-Proxy-HK.yaml").unwrap();
+        let found = router
+            .find(&url)
+            .expect("raw GitHub URLs must bypass generic extraction");
+        assert_eq!(found.kind(), SourceType::Generic);
     }
 
     #[test]
