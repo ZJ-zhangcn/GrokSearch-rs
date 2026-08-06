@@ -112,15 +112,7 @@ async fn handle_request(service: &SearchService, request: Value) -> Result<Value
                 .cloned()
                 .unwrap_or_else(|| json!({}));
             let result = match call_tool(service, name, args).await {
-                Ok(result) => json!({
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result.to_string()
-                        }
-                    ],
-                    "structuredContent": result
-                }),
+                Ok(result) => tool_success_result(result),
                 Err(err) => tool_error_result(&err),
             };
             Ok(success_response(id, result))
@@ -352,6 +344,31 @@ fn success_response(id: Value, result: Value) -> Value {
     })
 }
 
+/// Keep the JSON text representation as the portable MCP result surface, but
+/// avoid serializing a large payload twice. Some MCP adapters impose a result
+/// size limit and classify an oversized tool result as `invalid_arguments`.
+/// `structuredContent` is optional, so retain it only for small results where
+/// it improves typed-client compatibility without creating a large duplicate.
+const MAX_INLINE_STRUCTURED_RESULT_CHARS: usize = 32_000;
+
+fn tool_success_result(result: Value) -> Value {
+    let text = result.to_string();
+    let mut response = json!({
+        "content": [
+            {
+                "type": "text",
+                "text": text
+            }
+        ]
+    });
+
+    if text.chars().count() <= MAX_INLINE_STRUCTURED_RESULT_CHARS {
+        response["structuredContent"] = result;
+    }
+
+    response
+}
+
 /// MCP tool execution failures belong in a successful JSON-RPC result with
 /// `isError=true`. Returning a server-defined JSON-RPC error here makes clients
 /// classify an upstream failure as invalid tool arguments and often discard the
@@ -510,6 +527,18 @@ mod tests {
         assert!(sources[0].get("title").is_none());
         assert!(sources[0].get("description").is_none());
         assert!(sources[0].get("published_date").is_none());
+    }
+
+    #[test]
+    fn large_tool_results_do_not_duplicate_payload_in_mcp_result() {
+        let output = json!({ "payload": "x".repeat(40_000) });
+        let response = tool_success_result(output.clone());
+
+        assert_eq!(response["content"][0]["text"], output.to_string());
+        assert!(
+            response.get("structuredContent").is_none(),
+            "large results must not be serialized twice"
+        );
     }
 
     #[test]

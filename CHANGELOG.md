@@ -2,6 +2,12 @@
 
 All notable changes to GrokSearch-rs are documented here.
 
+## Unreleased
+
+### Fixed
+
+- Avoid duplicating large MCP tool results in both `content` and `structuredContent`; this keeps `response_format="detailed"` compatible with adapters that impose a result-size limit.
+
 ## 0.2.10 - 2026-08-06
 
 ### Fixed
