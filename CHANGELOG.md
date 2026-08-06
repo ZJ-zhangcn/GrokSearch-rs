@@ -2,7 +2,7 @@
 
 All notable changes to GrokSearch-rs are documented here.
 
-## Unreleased
+## 0.2.11 - 2026-08-06
 
 ### Fixed
 
