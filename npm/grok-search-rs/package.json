@@ -1,7 +1,7 @@
 {
   "name": "grok-search-rs-pc",
-  "version": "0.2.8",
-  "description": "personal-compat GrokSearch-rs (macOS + Windows x64): time inject, no double web_search tool, GROK_API_* aliases",
+  "version": "0.2.9",
+  "description": "personal-compat GrokSearch-rs (macOS, Linux x64 + Windows x64): time inject, no double web_search tool, GROK_API_* aliases",
   "publishConfig": {
     "access": "public"
   },
@@ -36,6 +36,7 @@
   },
   "os": [
     "darwin",
+    "linux",
     "win32"
   ],
   "cpu": [
@@ -43,7 +44,8 @@
     "arm64"
   ],
   "optionalDependencies": {
-    "grok-search-rs-pc-darwin-universal": "0.2.8",
-    "grok-search-rs-pc-win32-x64": "0.2.8"
+    "grok-search-rs-pc-darwin-universal": "0.2.9",
+    "grok-search-rs-pc-linux-x64": "0.2.9",
+    "grok-search-rs-pc-win32-x64": "0.2.9"
   }
 }

@@ -9,6 +9,7 @@ const BIN_NAME = "grok-search-rs";
 const PLATFORMS = {
   "darwin-x64": "grok-search-rs-pc-darwin-universal",
   "darwin-arm64": "grok-search-rs-pc-darwin-universal",
+  "linux-x64": "grok-search-rs-pc-linux-x64",
   "win32-x64": "grok-search-rs-pc-win32-x64",
 };
 
@@ -18,7 +19,7 @@ function getBinaryPath() {
 
   if (!pkgName) {
     console.error(`Unsupported platform: ${process.platform}-${process.arch}`);
-    console.error(`Supported: ${Object.keys(PLATFORMS).join(", ")} (macOS / Windows x64)`);
+    console.error(`Supported: ${Object.keys(PLATFORMS).join(", ")} (macOS / Linux x64 / Windows x64)`);
     process.exit(1);
   }
 

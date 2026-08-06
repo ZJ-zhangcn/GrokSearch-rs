@@ -19,7 +19,7 @@ Fork 自 [`Episkey-G/GrokSearch-rs`](https://github.com/Episkey-G/GrokSearch-rs)
 | 环境变量 | 主要 `GROK_SEARCH_*` | 额外接受 **`GROK_API_*` / `GROK_MODEL` / `GROK_API_MODE`** 等 Python 同名别名 |
 | 时间 | 无 | 查询含「今天/today」等时 **注入本地时间**，减少二次搜时间 |
 | `GROK_SEARCH_WEB_SEARCH` | 默认更偏 `true` | **默认 `false`**，避免 grok-4.5 双工具 400/429 |
-| 发布矩阵 | 多平台 | **macOS universal + Windows x64**（去掉 Win ARM 等） |
+| 发布矩阵 | 多平台 | **macOS universal + Linux x64 + Windows x64**（去掉 Win ARM 等） |
 | 文档 | 英文长文 | 本中文操作说明 + `docs/PUBLISH.md` |
 
 MCP 工具集与上游一致：`web_search` · `get_sources` · `web_fetch` · `web_map` · `doctor`。
@@ -28,7 +28,7 @@ MCP 工具集与上游一致：`web_search` · `get_sources` · `web_fetch` · `
 
 ### 方式 A：npx（推荐，不 clone）
 
-无需 clone 或本地构建。个人 Release 仅发布 **macOS universal + Windows x64** 的 stdio 二进制，npm 会按平台自动选择。
+无需 clone 或本地构建。个人 Release 发布 **macOS universal + Linux x64 + Windows x64** 的 stdio 二进制，npm 会按平台自动选择。
 
 直接运行：
 

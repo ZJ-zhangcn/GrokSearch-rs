@@ -2,6 +2,12 @@
 
 All notable changes to GrokSearch-rs are documented here.
 
+## 0.2.9 - 2026-08-06
+
+### Fixed
+
+- Publish the personal-compat Linux x64 stdio package so the production MCP gateway can consume the query-only default fix.
+
 ## 0.2.8 - 2026-08-06
 
 ### Fixed

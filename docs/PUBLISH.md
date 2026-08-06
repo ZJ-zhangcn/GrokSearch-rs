@@ -6,6 +6,7 @@
 |---|---|
 | `grok-search-rs-pc` | 主包（`npx` 入口） |
 | `grok-search-rs-pc-darwin-universal` | macOS 二进制 |
+| `grok-search-rs-pc-linux-x64` | Linux x64 二进制 |
 | `grok-search-rs-pc-win32-x64` | Windows x64 二进制 |
 
 与上游 `grok-search-rs` **名字不同**，不会冲突。
@@ -13,9 +14,10 @@
 ## 目标平台
 
 - macOS universal（Intel + Apple Silicon 一条包）
+- Linux x64
 - Windows x64  
 
-不构建：Linux、Windows ARM。
+不构建：Linux ARM、Windows ARM。
 
 ## 一次性准备
 
@@ -56,7 +58,7 @@ git push origin v0.2.0
 
 或 Actions → **Bump Version**。
 
-打 `v*` tag 后 **Release** workflow 会：编译 mac+win → GitHub Release → `npm publish` 平台包 → 主包。
+打 `v*` tag 后 **Release** workflow 会：编译 mac+linux x64+win → GitHub Release → `npm publish` 平台包 → 主包。
 
 ## Hermes
 

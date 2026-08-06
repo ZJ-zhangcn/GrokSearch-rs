@@ -13,4 +13,4 @@ command: npx
 args: [-y, "grok-search-rs-pc@latest"]
 ```
 
-Platforms: macOS (universal), Windows x64.
+Platforms: macOS (universal), Linux x64, Windows x64.
