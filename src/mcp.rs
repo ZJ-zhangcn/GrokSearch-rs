@@ -259,8 +259,8 @@ fn tools_list() -> Value {
                         },
                         "include_content": {
                             "type": "boolean",
-                            "default": true,
-                            "description": "Inline source content via the resolve_content pipeline. Default true. Pass false to get summary + source-list only (legacy behavior, no content field in sources). Superseded by response_format when both are set."
+                            "default": false,
+                            "description": "Inline source content via the resolve_content pipeline. Default false for query-only discovery calls. Pass true for inline content; response_format takes precedence when supplied."
                         },
                         "response_format": {
                             "type": "string",
@@ -576,6 +576,10 @@ mod tests {
         assert!(
             props.contains_key("response_format"),
             "response_format must remain: {props:?}"
+        );
+        assert_eq!(
+            props["include_content"]["default"], false,
+            "query-only discovery must default to metadata-only sources"
         );
     }
 }

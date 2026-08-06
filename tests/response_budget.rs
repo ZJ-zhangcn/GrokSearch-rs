@@ -67,6 +67,7 @@ async fn inline_content_capped_to_max_inline_sources() {
     let output = service
         .web_search(WebSearchInput {
             query: "q".to_string(),
+            include_content: Some(true),
             ..Default::default()
         })
         .await
@@ -102,6 +103,7 @@ async fn response_budget_trims_tail_and_cache_keeps_full_content() {
     let output = service
         .web_search(WebSearchInput {
             query: "q".to_string(),
+            include_content: Some(true),
             ..Default::default()
         })
         .await
@@ -156,6 +158,7 @@ async fn response_within_budget_is_not_truncated() {
     let output = service
         .web_search(WebSearchInput {
             query: "q".to_string(),
+            include_content: Some(true),
             ..Default::default()
         })
         .await

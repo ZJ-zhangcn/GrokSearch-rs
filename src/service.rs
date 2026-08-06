@@ -464,7 +464,10 @@ impl SearchService {
             }
         };
         let include_content =
-            format_include_content.unwrap_or_else(|| input.include_content.unwrap_or(true));
+            // Query-only MCP clients cannot provide an output preference. Keep
+            // discovery requests lightweight; callers can opt into inline source
+            // bodies with include_content=true or response_format="detailed".
+            format_include_content.unwrap_or_else(|| input.include_content.unwrap_or(false));
 
         let mut uuid_buf = [0u8; uuid::fmt::Simple::LENGTH];
         let session_id = {
@@ -1840,6 +1843,12 @@ mod enrich_tests {
         }
     }
 
+    fn enriched_input() -> WebSearchInput {
+        let mut input = base_input();
+        input.include_content = Some(true);
+        input
+    }
+
     #[tokio::test]
     async fn counting_extractor_self_test() {
         // Sanity: the helper itself records concurrency.
@@ -1851,16 +1860,16 @@ mod enrich_tests {
             sleep_ms: 5,
         })]);
         let svc = service_with(enrich_config(), router);
-        let _ = svc.web_search(base_input()).await.expect("web_search");
+        let _ = svc.web_search(enriched_input()).await.expect("web_search");
         assert!(peak.load(Ordering::SeqCst) >= 1);
     }
 
     #[tokio::test]
-    async fn web_search_inline_default_fills_content() {
+    async fn web_search_without_content_preference_omits_inline_content() {
         let peak = Arc::new(AtomicUsize::new(0));
         let current = Arc::new(AtomicUsize::new(0));
         let router = SourceRouter::with_extractors(vec![Box::new(CountingExtractor {
-            peak,
+            peak: Arc::clone(&peak),
             current,
             sleep_ms: 0,
         })]);
@@ -1868,10 +1877,11 @@ mod enrich_tests {
         let out = svc.web_search(base_input()).await.expect("web_search");
 
         assert!(!out.sources.is_empty());
-        for s in &out.sources {
-            let c = s.content.as_deref().unwrap_or("");
-            assert!(!c.is_empty(), "every source must have non-empty content");
-        }
+        assert!(
+            out.sources.iter().all(|s| s.content.is_none()),
+            "query-only search must not inline source content"
+        );
+        assert_eq!(peak.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -1881,7 +1891,7 @@ mod enrich_tests {
         // web_fetch), not emit a `_Failed to retrieve: no_specialist_match_`
         // note for ordinary search results (P1).
         let svc = service_with(enrich_config(), SourceRouter::default());
-        let out = svc.web_search(base_input()).await.expect("web_search");
+        let out = svc.web_search(enriched_input()).await.expect("web_search");
 
         assert!(!out.sources.is_empty());
         for s in &out.sources {
@@ -1910,7 +1920,7 @@ mod enrich_tests {
         config.enrich_concurrency = 2;
         let svc = service_with(config, router);
 
-        let _ = svc.web_search(base_input()).await.expect("web_search");
+        let _ = svc.web_search(enriched_input()).await.expect("web_search");
         // 4 sources, concurrency 2 → peak must never exceed 2.
         assert!(
             peak.load(Ordering::SeqCst) <= 2,
@@ -1924,7 +1934,7 @@ mod enrich_tests {
         let router =
             SourceRouter::with_extractors(vec![Box::new(OversizeExtractor { len: 20_000 })]);
         let svc = service_with(enrich_config(), router); // default enrich_max_chars = 15000
-        let out = svc.web_search(base_input()).await.expect("web_search");
+        let out = svc.web_search(enriched_input()).await.expect("web_search");
 
         for s in &out.sources {
             let len = s.content.as_deref().map(|c| c.chars().count()).unwrap_or(0);
@@ -1955,7 +1965,7 @@ mod enrich_tests {
             Some(Arc::new(SearchOkFetchErrProvider)),
         );
         let out = svc
-            .web_search(base_input())
+            .web_search(enriched_input())
             .await
             .expect("web_search returns Ok despite one failure");
 
@@ -1995,7 +2005,7 @@ mod enrich_tests {
             fail_url_marker: "openai.com".to_string(),
         })]);
         let svc = service_with(enrich_config(), router); // FakeSourceProvider.fetch succeeds
-        let out = svc.web_search(base_input()).await.expect("web_search");
+        let out = svc.web_search(enriched_input()).await.expect("web_search");
 
         let failed = out
             .sources
@@ -2081,7 +2091,7 @@ mod enrich_tests {
         let svc = service_with(config, router);
 
         let out = svc
-            .web_search(base_input())
+            .web_search(enriched_input())
             .await
             .expect("web_search returns Ok on timeout");
         for s in &out.sources {
