@@ -111,10 +111,8 @@ async fn handle_request(service: &SearchService, request: Value) -> Result<Value
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let result = call_tool(service, name, args).await?;
-            Ok(success_response(
-                id,
-                json!({
+            let result = match call_tool(service, name, args).await {
+                Ok(result) => json!({
                     "content": [
                         {
                             "type": "text",
@@ -123,7 +121,9 @@ async fn handle_request(service: &SearchService, request: Value) -> Result<Value
                     ],
                     "structuredContent": result
                 }),
-            ))
+                Err(err) => tool_error_result(&err),
+            };
+            Ok(success_response(id, result))
         }
         _ => Err(GrokSearchError::NotFound(format!(
             "unsupported method: {method}"
@@ -231,7 +231,7 @@ fn tools_list() -> Value {
         "tools": [
             {
                 "name": "web_search",
-                "description": "Use for discovery — when you don't have a specific URL and need to find information, debug an error, research a topic, weather/news, or track down an issue. Returns an AI-synthesised answer plus a source list. Time-relative queries (今天/today/最新/current/…) automatically receive local date/time context inside the server — do NOT first look up \"what day is today\" and re-search. Prefer a single web_search for weather/facts; only use web_fetch when you already have a specific URL to read in depth. By default the first few sources carry inline content; drill into any with web_fetch(url). Pass response_format=\"concise\" for answer + metadata only.",
+                "description": "Use for discovery — when you don't have a specific URL and need to find information, debug an error, research a topic, weather/news, or track down an issue. Returns an AI-synthesised answer plus a source list. Time-relative queries (今天/today/最新/current/…) automatically receive local date/time context inside the server — do NOT first look up \"what day is today\" and re-search. Prefer a single web_search for weather/facts; only use web_fetch when you already have a specific URL to read in depth. By default sources carry metadata only; pass include_content=true or response_format=\"detailed\" for inline source content. Pass response_format=\"concise\" for the smallest answer + metadata payload.",
                 "inputSchema": {
                     "type": "object",
                     "required": ["query"],
@@ -349,6 +349,28 @@ fn success_response(id: Value, result: Value) -> Value {
         "jsonrpc": "2.0",
         "id": id,
         "result": result
+    })
+}
+
+/// MCP tool execution failures belong in a successful JSON-RPC result with
+/// `isError=true`. Returning a server-defined JSON-RPC error here makes clients
+/// classify an upstream failure as invalid tool arguments and often discard the
+/// useful provider/timeout message.
+fn tool_error_result(error: &GrokSearchError) -> Value {
+    json!({
+        "content": [
+            {
+                "type": "text",
+                "text": error.to_string()
+            }
+        ],
+        "isError": true,
+        "structuredContent": {
+            "error": {
+                "code": error.code(),
+                "message": error.to_string()
+            }
+        }
     })
 }
 
@@ -517,6 +539,10 @@ mod tests {
             !web_search.contains("read a single page"),
             "web_search must not claim the single-page-read role: {web_search}"
         );
+        assert!(
+            web_search.contains("metadata only"),
+            "web_search must describe the metadata-only default: {web_search}"
+        );
 
         // web_fetch: targeted single-page read, names all four special
         // sources, cross-references web_search.
@@ -580,6 +606,33 @@ mod tests {
         assert_eq!(
             props["include_content"]["default"], false,
             "query-only discovery must default to metadata-only sources"
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_execution_errors_use_mcp_is_error_result() {
+        let service = SearchService::fake_with_sources();
+        let response = handle_request(
+            &service,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "tools/call",
+                "params": { "name": "web_search", "arguments": {} }
+            }),
+        )
+        .await
+        .expect("tools/call response");
+
+        assert!(response.get("error").is_none(), "tool failures are results");
+        assert_eq!(response["result"]["isError"], true);
+        assert_eq!(
+            response["result"]["content"][0]["text"],
+            "invalid params: web_search.query is required"
+        );
+        assert_eq!(
+            response["result"]["structuredContent"]["error"]["code"],
+            -32602
         );
     }
 }

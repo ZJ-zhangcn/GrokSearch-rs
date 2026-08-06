@@ -2,6 +2,13 @@
 
 All notable changes to GrokSearch-rs are documented here.
 
+## 0.2.10 - 2026-08-06
+
+### Fixed
+
+- Return MCP tool execution failures as `isError=true` results so clients preserve provider and timeout diagnostics instead of classifying them as invalid arguments.
+- Keep `response_format="detailed"` source-content behavior while correcting the default web-search description.
+
 ## 0.2.9 - 2026-08-06
 
 ### Fixed
