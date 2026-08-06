@@ -415,6 +415,7 @@ async fn web_search_still_succeeds_when_fallback_has_sources() {
     let output = service
         .web_search(WebSearchInput {
             query: "anything".to_string(),
+            include_content: Some(true),
             ..Default::default()
         })
         .await

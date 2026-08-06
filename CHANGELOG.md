@@ -2,6 +2,12 @@
 
 All notable changes to GrokSearch-rs are documented here.
 
+## 0.2.8 - 2026-08-06
+
+### Fixed
+
+- Query-only `web_search` requests now default to metadata-only source fallback, avoiding unnecessary inline content fetches after a Grok timeout. Explicit `include_content=true` and detailed responses retain the previous enrichment behavior.
+
 ## 0.1.24 - 2026-08-05
 
 ### Added
