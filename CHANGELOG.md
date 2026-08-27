@@ -2,6 +2,15 @@
 
 All notable changes to GrokSearch-rs are documented here.
 
+## 0.2.14 - 2026-08-27
+
+### Absorbed upstream 0.1.25
+
+- stdio 请求现在并发处理，最多 8 个 in-flight 请求，避免慢速上游让后续 MCP 请求静默超时。
+- 信源链为空时，失败信息明确指出缺少 source provider 及可配置的 API key。
+- `doctor` 报告配置文件的路径、状态（`absent` / `loaded` / `rejected`）及安全的拒绝原因。
+- 多 key 轮换环提取为 provider 共享模块，保留原有轮换行为。
+
 ## 0.2.11 - 2026-08-06
 
 ### Fixed

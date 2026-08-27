@@ -124,17 +124,12 @@ ${EDITOR:-nano} ~/.config/grok-search-rs/config.toml
 
 完整英文说明、高级参数：上游仓库。日常接入请始终用 **`grok-search-rs-pc`**。
 
-## 远程 HTTP（上游 0.1.18，可选）
+## 源码编译（开发）
 
-上游新增 **Streamable HTTP** 多租户 BYO-key 模式（`--features http`，默认 stdio 不受影响）。本 fork 的 npm 包仍以 **stdio + personal-compat 补丁** 为主。
-
-```bash
-cargo build --profile release-http --features http
-GROK_MCP_BIND=127.0.0.1:8080 target/release-http/grok-search-rs --http
-```
-
-详情见上游文档与仓库内 `Dockerfile`、`docker-compose.yml`、`Caddyfile`。Hermes 日常仍用：
+需要自行编译时，可直接使用 Rust 工具链：
 
 ```bash
-npx -y grok-search-rs-pc@latest
+cargo build --release
 ```
+
+编译后的 `target/release/grok-search-rs` 可作为 MCP 客户端的 stdio command。公开 npm Release 仍只提供上面的 **macOS universal + Windows x64** 预编译包。

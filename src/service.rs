@@ -1317,6 +1317,19 @@ impl SearchService {
                 "detail": firecrawl_probe.detail,
             },
             "source_chain": source_chain,
+            // Whether the config file was read at all, and why not when it was
+            // not. Without this a rejected file is indistinguishable from an
+            // absent one: both leave every setting at its default, and the
+            // only account of the difference went to stderr, which an MCP
+            // client swallows.
+            "config_file": {
+                "path": self.config
+                    .config_file_path
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
+                "state": self.config.config_file_state.as_str(),
+                "detail": self.config.config_file_state.detail(),
+            },
             "default_extra_sources": self.config.default_extra_sources,
             "fallback_sources": self.config.fallback_sources,
             "cache_size": self.config.cache_size,
@@ -2229,9 +2242,27 @@ async fn generic_source_fetch(chain: &[SourceEntry], url: &str) -> Result<Fetche
             Err(err) => last_error = Some(err),
         }
     }
-    Err(last_error.unwrap_or(GrokSearchError::MissingConfig(
-        "TAVILY_API_KEY, EXA_API_KEY, TINYFISH_API_KEY or FIRECRAWL_API_KEY",
-    )))
+    Err(last_error.unwrap_or(GrokSearchError::MissingConfig(SOURCE_PROVIDER_KEYS)))
+}
+
+/// The keys that make a generic fetch possible at all. Named from one place so
+/// the `web_fetch` error and the inline-enrichment note cannot drift apart.
+const SOURCE_PROVIDER_KEYS: &str =
+    "TAVILY_API_KEY, EXA_API_KEY, TINYFISH_API_KEY or FIRECRAWL_API_KEY";
+
+/// Why an ordinary URL could not be enriched.
+///
+/// With an empty chain there is no source provider to fetch it, and that has
+/// nothing to do with specialist extractors: those need no key and simply did
+/// not match this URL. Reporting the specialist outcome here sends the reader
+/// off to debug the wrong subsystem — it is how the reporter of issue #39 came
+/// to believe specialists require API keys.
+fn enrichment_failure_reason(chain: &[SourceEntry], specialist_reason: &str) -> String {
+    if chain.is_empty() {
+        format!("no source provider configured (set {SOURCE_PROVIDER_KEYS})")
+    } else {
+        specialist_reason.to_string()
+    }
 }
 
 /// One enrichment outcome: the content to store plus any metadata backfill
@@ -2358,13 +2389,16 @@ async fn enrich_sources(
                         // fetch before giving up, so inline content still has page
                         // evidence when a source provider can fetch the URL (P1 +
                         // specialist-failure fallback). The original `reason` is
-                        // surfaced only if the generic fetch also fails.
+                        // surfaced only if the generic fetch also fails, and only
+                        // when there was a chain to fail — see
+                        // `enrichment_failure_reason`.
                         Ok(Err(reason)) => {
                             let generic = generic_source_fetch(&chain, &url_str);
                             match tokio::time::timeout_at(deadline, generic).await {
                                 Ok(Ok(page)) => EnrichedFetch::from_page(page, max_chars),
                                 Ok(Err(_)) => EnrichedFetch::note(format!(
-                                    "_Failed to retrieve: {reason}_\n\nSource: {url_str}"
+                                    "_Failed to retrieve: {}_\n\nSource: {url_str}",
+                                    enrichment_failure_reason(&chain, &reason)
                                 )),
                                 Err(_elapsed) => EnrichedFetch::note(format!(
                                     "_Failed to retrieve: timeout_\n\nSource: {url_str}"
@@ -2758,6 +2792,81 @@ mod transport_dispatch_tests {
         assert_eq!(report_unset["github_token"], "unset");
     }
 
+    /// Build a service around a config whose file outcome the test dictates.
+    fn service_for_config(config: Config) -> SearchService {
+        SearchService {
+            default_model: resolve_default_model(&config),
+            config,
+            ai: Arc::new(FakeAiProvider),
+            source_slots: Arc::new(Vec::new()),
+            cache: Arc::new(Mutex::new(SourceCache::new(16))),
+            http_client: crate::providers::http::build_client(std::time::Duration::from_secs(30)),
+            source_router: Arc::new(crate::sources::SourceRouter::default()),
+        }
+    }
+
+    #[tokio::test]
+    async fn doctor_reports_a_rejected_config_file_and_why() {
+        // The whole point: a typo used to void the entire file with nothing to
+        // show for it but a stderr line the client swallowed, leaving the
+        // operator to conclude their key "wasn't configured" (issue #35).
+        let mut config = Config::from_env_map([("GROK_SEARCH_API_KEY", "xai-fake")]);
+        config.config_file_path = Some(std::path::PathBuf::from("/tmp/does-not-matter.toml"));
+        config.config_file_state =
+            crate::config::ConfigFileState::Rejected("unknown field `tavly_api_key`".to_string());
+
+        let report = service_for_config(config).doctor().await;
+
+        assert_eq!(report["config_file"]["state"], "rejected");
+        assert_eq!(
+            report["config_file"]["path"], "/tmp/does-not-matter.toml",
+            "the operator needs to know which file: {report}"
+        );
+        assert!(
+            report["config_file"]["detail"]
+                .as_str()
+                .expect("a rejection carries its reason")
+                .contains("tavly_api_key"),
+            "the reason must name the offending key: {report}"
+        );
+    }
+
+    #[tokio::test]
+    async fn doctor_distinguishes_an_absent_config_file_from_a_rejected_one() {
+        // Running on environment variables alone is normal, not a failure.
+        let report =
+            service_for_config(Config::from_env_map([("GROK_SEARCH_API_KEY", "xai-fake")]))
+                .doctor()
+                .await;
+
+        assert_eq!(report["config_file"]["state"], "absent");
+        assert!(
+            report["config_file"]["detail"].is_null(),
+            "nothing failed, so there is no reason to give: {report}"
+        );
+    }
+
+    #[tokio::test]
+    async fn doctor_reports_the_endpoints_that_will_actually_be_called() {
+        // A report that echoes config the providers do not use would send the
+        // operator to debug a URL nothing ever contacts.
+        let config = Config::from_env_map([
+            ("GROK_SEARCH_API_KEY", "xai-fake"),
+            ("GROK_SEARCH_URL", "https://gateway.example"),
+            ("EXA_API_URL", "https://exa.example"),
+            ("TAVILY_API_URL", "https://tavily.example"),
+        ]);
+        let expected_grok = config.grok_api_url.clone();
+        let expected_exa = config.exa_api_url.clone();
+        let expected_tavily = config.tavily_api_url.clone();
+
+        let report = service_for_config(config).doctor().await;
+
+        assert_eq!(report["grok"]["api_url"], expected_grok);
+        assert_eq!(report["exa"]["api_url"], expected_exa);
+        assert_eq!(report["tavily"]["api_url"], expected_tavily);
+    }
+
     #[tokio::test]
     async fn fake_with_router_constructs_and_clones() {
         let svc = SearchService::fake_with_router(
@@ -3028,6 +3137,85 @@ mod enrich_tests {
                 !c.contains("no_specialist_match"),
                 "must not leak the no_specialist_match note: {c:?}"
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn enrich_names_the_missing_source_provider_when_the_chain_is_empty() {
+        // With no source provider configured, nothing can fetch an ordinary
+        // page — and that has nothing to do with specialist extractors, which
+        // need no key and simply did not match this URL. Saying
+        // "no_specialist_match" here sends the reader to debug the wrong thing;
+        // it is what taught the reporter of #39 that specialists need keys.
+        let svc = service_with_sources(enrich_config(), SourceRouter::default(), None);
+        let out = svc.web_search(enriched_input()).await.expect("web_search");
+
+        assert!(!out.sources.is_empty());
+        for s in &out.sources {
+            let c = s.content.as_deref().unwrap_or("");
+            assert!(
+                !c.contains("specialist"),
+                "an empty chain is not a specialist problem: {c:?}"
+            );
+            assert!(
+                c.contains("no source provider configured"),
+                "the note must name what is actually missing: {c:?}"
+            );
+            assert!(
+                c.contains("TAVILY_API_KEY"),
+                "the note must say how to supply one: {c:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_chain_names_the_same_keys_to_web_fetch_and_to_enrichment() {
+        // Two paths, one answer. They drifted apart before because each spelled
+        // the missing config out by hand.
+        let svc = service_with_sources(enrich_config(), SourceRouter::default(), None);
+
+        let fetch_error = svc
+            .web_fetch("https://example.com/plain", None)
+            .await
+            .expect_err("nothing can fetch a generic URL with an empty chain")
+            .to_string();
+        let out = svc.web_search(enriched_input()).await.expect("web_search");
+        let note = out.sources[0].content.clone().unwrap_or_default();
+
+        for key in [
+            "TAVILY_API_KEY",
+            "EXA_API_KEY",
+            "TINYFISH_API_KEY",
+            "FIRECRAWL_API_KEY",
+        ] {
+            assert!(
+                fetch_error.contains(key),
+                "web_fetch omits {key}: {fetch_error}"
+            );
+            assert!(note.contains(key), "enrichment omits {key}: {note}");
+        }
+    }
+
+    #[tokio::test]
+    async fn specialist_extractors_still_work_without_any_source_provider() {
+        // The whole point of the distinction: specialists take no key, so an
+        // empty chain must not stop them.
+        let router = SourceRouter::with_extractors(vec![Box::new(CountingExtractor {
+            peak: Arc::new(AtomicUsize::new(0)),
+            current: Arc::new(AtomicUsize::new(0)),
+            sleep_ms: 0,
+        })]);
+        let svc = service_with_sources(enrich_config(), router, None);
+        let out = svc.web_search(enriched_input()).await.expect("web_search");
+
+        assert!(!out.sources.is_empty());
+        for s in &out.sources {
+            let c = s.content.as_deref().unwrap_or("");
+            assert!(
+                !c.contains("Failed to retrieve"),
+                "a specialist needs no source provider: {c:?}"
+            );
+            assert!(!c.is_empty(), "specialist content must land: {c:?}");
         }
     }
 
